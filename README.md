@@ -11,6 +11,8 @@ similar in spirit to traditional OpenGL.
 * Lighting
 * Textures
 
+![image](https://github.com/aap/xtc/assets/1521437/2a864453-38d2-4035-acd4-76fffa109627)
+
 ## Architecture
 
 A basic layer for dealing with DMA chains and packets
