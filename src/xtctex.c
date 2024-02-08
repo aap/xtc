@@ -1,6 +1,7 @@
 #include "mdma.h"
 #include "xtc.h"
 #include "lodepng.h"
+void lodepng_free(void* ptr);
 
 #include <libgraph.h>
 
@@ -95,7 +96,7 @@ xtcReadPNG(uint8 *data, uint32 len)
 		return nil;
 	}
 
-	r = malloc(sizeof(*r));
+	r = mdmaMalloc(sizeof(*r));
 	memset(r, 0, sizeof(*r));
 	r->width = w;
 	r->height = h;
@@ -104,11 +105,11 @@ xtcReadPNG(uint8 *data, uint32 len)
 	case LCT_PALETTE:
 		r->depth = state.info_raw.palettesize <= 16 ? 4 : 8;
 		r->psm = r->depth == 4 ? SCE_GS_PSMT4 : SCE_GS_PSMT8;
-		r->clutSize = (2<<r->depth)*4;
-		r->clut = malloc(r->clutSize);
-		copy32(r->clut, r->clutSize, state.info_raw.palette, r->clutSize, 256, 1);
+		r->clutSize = (1<<r->depth)*4;
+		r->clut = mdmaMalloc(r->clutSize);
+		copy32(r->clut, r->clutSize, state.info_raw.palette, r->clutSize, 1<<r->depth, 1);
 		r->pixelSize = w*h*r->depth/8;
-		r->pixels = malloc(r->pixelSize);
+		r->pixels = mdmaMalloc(r->pixelSize);
 		if(state.info_raw.bitdepth == 4)
 			copy4to4_swap(r->pixels, w/2, raw, w/2, w, h);
 		else if(r->depth == 4)
@@ -124,18 +125,18 @@ xtcReadPNG(uint8 *data, uint32 len)
 		r->depth = 24;
 		r->psm = SCE_GS_PSMCT24;
 		r->pixelSize = w*h*3;
-		r->pixels = malloc(r->pixelSize);
+		r->pixels = mdmaMalloc(r->pixelSize);
 		memcpy(r->pixels, raw, w*h*3);
 //		copy24to32(r->pixels, w*4, raw, w*3, w, h);
 		break;
 	default:
 	def:
 		// can't handle format, load as 32
-		free(raw);
+		lodepng_free(raw);
 		lodepng_state_init(&state);
 		error = lodepng_decode(&raw, &w, &h, &state, data, len);
 		if(error){
-			free(r);
+			mdmaFree(r);
 			printf("lodepng error %s\n", lodepng_error_text(error));
 			return nil;
 		}
@@ -148,12 +149,12 @@ xtcReadPNG(uint8 *data, uint32 len)
 		r->depth = 32;
 		r->psm = SCE_GS_PSMCT32;
 		r->pixelSize = w*h*4;
-		r->pixels = malloc(r->pixelSize);
+		r->pixels = mdmaMalloc(r->pixelSize);
 		copy32(r->pixels, w*4, raw, w*4, w, h);
 		break;
 	}
 
-	free(raw);
+	lodepng_free(raw);
 
 	xtcrRasterBuildChains(r);
 
@@ -270,7 +271,7 @@ xtcrRasterBuildChains(xtcRaster *r)
 	// TODO(mipmap)
 	uint32 numPkts = r->clut ? 2 : 1;
 
-	r->pkts = malloc(numPkts*8*16);
+	r->pkts = mdmaMalloc(numPkts*8*16);
 	mdmaStart(&l, r->pkts, numPkts*8);
 	uint32 w, h, sz;
 

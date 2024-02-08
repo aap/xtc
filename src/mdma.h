@@ -16,6 +16,7 @@ typedef short int16;
 typedef unsigned short uint16;
 typedef signed char int8;
 typedef unsigned char uint8;
+typedef uint32 uintptr;
 
 typedef u_long128 uint128;
 #define MAKE128(RES,MSB,LSB) \
@@ -97,6 +98,10 @@ extern sceDmaChan *mdmaGIF;
 extern sceDmaChan *mdmaVIF;
 
 void mdmaInit(void);
+
+extern void *(*mdmaMalloc)(size_t sz);
+extern void *(*mdmaRealloc)(void *p, size_t sz);
+extern void (*mdmaFree)(void *p);
 
 /*
  * DMA lists and packets

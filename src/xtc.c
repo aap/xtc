@@ -1,6 +1,7 @@
 #include "mdma.h"
 #include "xtc.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <assert.h>
 
 #include <libgraph.h>

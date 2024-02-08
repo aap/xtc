@@ -296,7 +296,7 @@ xtcpBuildList(xtcPrimList *list, xtcBatchInfo *bi)
 	uint32 batchQWC = calcBatchQWC(desc, bi->batchSize);
 	uint32 lastBatchQWC = calcBatchQWC(desc, bi->lastBatchSize);
 	list->size = 16*(batchQWC*(bi->numBatches-1) + lastBatchQWC);
-	uint32 *data = malloc(list->size);
+	uint32 *data = mdmaMalloc(list->size);
 	assert(((uint32)data & 0xF) == 0);
 
 	list->list = data;
@@ -370,7 +370,7 @@ xtcCreatePrimList(void)
 {
 	xtcPrimList *pl;
 
-	pl = (xtcPrimList*)malloc(sizeof(xtcPrimList));
+	pl = (xtcPrimList*)mdmaMalloc(sizeof(xtcPrimList));
 	memset(pl, 0, sizeof(*pl));
 
 	return pl;

@@ -86,7 +86,7 @@ static void* lodepng_realloc(void* ptr, size_t new_size) {
   return realloc(ptr, new_size);
 }
 
-static void lodepng_free(void* ptr) {
+void lodepng_free(void* ptr) {
   free(ptr);
 }
 #else /*LODEPNG_COMPILE_ALLOCATORS*/

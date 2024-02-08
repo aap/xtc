@@ -1,4 +1,5 @@
 #include "mdma.h"
+#include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
 #include <libgraph.h>
@@ -21,6 +22,11 @@ mdmaInit(void)
 	mdmaVIF->chcr.TIE = 1;
 }
 
+
+/* default memory management */
+void *(*mdmaMalloc)(size_t sz) = malloc;
+void *(*mdmaRealloc)(void *p, size_t sz) = realloc;
+void (*mdmaFree)(void *p) = free;
 
 
 /*

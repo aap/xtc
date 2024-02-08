@@ -1,6 +1,7 @@
 #include "mdma.h"
 #include "xtc.h"
 #include "m.h"
+#include "mem.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -298,7 +299,7 @@ drawSphere(void)
 		float cth2 = cosf(theta2);
 		float sth2 = sinf(theta2);
 
-if(i != 0) xtcRestartStrip();
+		if(i != 0) xtcRestartStrip();
 //if(i&1) continue;
 
 		for(int j = 0; j < nh; j++) {
@@ -531,6 +532,9 @@ main()
 {
 	sceSifInitRpc(0);
 
+	// this will make debugging and finding leaks easier
+//	memInitManaged();
+
 	mdmaInit();
 	mdmaResetGraph(SCE_GS_INTERLACE, VIDEOMODE, SCE_GS_FIELD);
 	mdmaInitBuffers(&buffers, SCREEN_WIDTH, SCREEN_HEIGHT,
@@ -595,19 +599,25 @@ raster4  = xtcReadPNG(SIZED(tex4));
 		xtcTexFunc(XTC_RGB, XTC_MODULATE);
 //		moveInCircle(10.0f);
 		drawTeapot();
+//		drawSphere();
+
 		xtcEnable(XTC_TEXTURE);
 		xtcBindTexture(raster24);
 //		drawCube();
-//		drawSphere();
 
+
+/*
 	const float scl = 128.0f/255.0f;
 	xtcColorScaleTex(1.0f, 1.0f, 1.0f, scl);
 //		xtcTexFunc(XTC_RGB, XTC_DECAL);
 		xtcDisable(XTC_DEPTH_TEST);
 		drawIm2D();
+	xtcColorScaleTex(scl, scl, scl, scl);
+*/
+
 		xtcDisable(XTC_TEXTURE);
 		xtcBindTexture(nil);
-	xtcColorScaleTex(scl, scl, scl, scl);
+
 
 		mdmaFinish(&viflist);
 //dumpDma((uint*)viflist.p, 1);
