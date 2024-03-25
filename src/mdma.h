@@ -1,28 +1,22 @@
-#include <sys/types.h>
+#ifndef MDMA_H_
+#define MDMA_H_
+
+#include "types.h"
+
 #include <string.h>
-#include <eetypes.h>
-#include <libdma.h>
+#include <sys/types.h>
 
 #define nil NULL
 #ifndef nelem
 #define nelem(arr) (sizeof(arr)/sizeof(arr[0]))
 #endif
 
-typedef long long int64;
-typedef unsigned long long uint64;
-typedef int int32;
-typedef unsigned int uint32;
-typedef short int16;
-typedef unsigned short uint16;
-typedef signed char int8;
-typedef unsigned char uint8;
-typedef uint32 uintptr;
-
-typedef u_long128 uint128;
-#define MAKE128(RES,MSB,LSB) \
-	__asm__ ( "pcpyld %0, %1, %2" : "=r" (RES) : "r" ((uint64)(MSB)), "r" ((uint64)(LSB)))
-#define UINT64(HIGH,LOW) (((uint64)(uint32)(HIGH))<<32 | ((uint64)(uint32)(LOW)))
-#define MAKEQ(RES,W3,W2,W1,W0) MAKE128(RES,UINT64(W3,W2),UINT64(W1,W0))
+typedef enum DMA_CHAN DMA_CHAN;
+enum DMA_CHAN {
+	DMA_CHAN_VIF0 = 0x10008000,
+	DMA_CHAN_VIF1 = 0x10009000,
+	DMA_CHAN_GIF = 0x1000A000,
+};
 
 enum {
 	IntFlg  = 0x80000000,
@@ -94,9 +88,6 @@ enum {
 
 
 
-extern sceDmaChan *mdmaGIF;
-extern sceDmaChan *mdmaVIF;
-
 void mdmaInit(void);
 
 extern void *(*mdmaMalloc)(size_t sz);
@@ -133,8 +124,8 @@ void mdmaRetDirect(mdmaList *list, uint16 qwc);
 void **mdmaNext(mdmaList *list, void *next, uint16 qwc, uint32 w0, uint32 w1);
 void **mdmaCall(mdmaList *list, uint16 qwc, void *addr, uint32 w0, uint32 w1);
 
-void mdmaSend(sceDmaChan *chan, mdmaList *list);
-void mdmaSendSynch(sceDmaChan *chan, mdmaList *list);
+void mdmaSend(DMA_CHAN chan, mdmaList *list);
+void mdmaSendSynch(DMA_CHAN chan, mdmaList *list);
 
 
 /*
@@ -238,3 +229,5 @@ extern struct mdmaGSregs mdmaGSregs, mdmaCurGSregs;
 
 void mdmaSetGsRegs(mdmaList *list);
 void mdmaFlushGsRegs(mdmaList *list);
+
+#endif // MDMA_H_

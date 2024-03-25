@@ -33,7 +33,7 @@ xtcpCombineMatrix(void)
 {
 	float t[16];
 	matmul(t, xtcState.view, xtcState.world);
-	matmul((float*)&xtcState.matrix0, xtcState.proj, t);
+	matmul(xtcState.matrix_f, xtcState.proj, t);
 }
 
 void
@@ -147,7 +147,7 @@ xtcpRefVertices(uint128 *verts, int32 numVerts, xtcBatchInfo *bi, uint32 stride)
 
 	int vertCount = bi->batchSize;
 	for(int i = 0; i < bi->numBatches-1; i++) {
-		mdmaRef(l, verts, vertCount*stride, 
+		mdmaRef(l, verts, vertCount*stride,
 			STCYCL(4,4), UNPACK(V4_32, vertCount*stride, 0x8000 + 0));
 		mdmaCnt(l, 0, VIFitop + vertCount, call);
 		call = VIFmscnt;
@@ -155,7 +155,7 @@ xtcpRefVertices(uint128 *verts, int32 numVerts, xtcBatchInfo *bi, uint32 stride)
 	}
 
 	vertCount = bi->lastBatchSize;
-	mdmaRef(l, verts, vertCount*stride, 
+	mdmaRef(l, verts, vertCount*stride,
 		STCYCL(4,4), UNPACK(V4_32, vertCount*stride, 0x8000 + 0));
 	mdmaCnt(l, 1, VIFitop + vertCount, call);
 	mdmaAddW(l, VIFnop, VIFnop, VIFflush, VIFflush);
@@ -520,6 +520,9 @@ xtcRestartStrip(void)
 	case XTC_TRISTRIP:
 		xtcpKickVertex(imstate.code->vertFmt);
 		imstate.restartstrip = 1;
+		break;
+	default:
+		printf("%s: Unsupported primtype %04x\n", __FUNCTION__, imstate.primtype);
 		break;
 	}
 }

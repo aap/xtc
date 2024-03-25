@@ -1,5 +1,6 @@
 #include <stdio.h>
-#include <eetypes.h>
+
+#include "types.h"
 
 static void
 indent(int n)
@@ -9,7 +10,7 @@ indent(int n)
 }
 
 static void
-dumpData(uint *data, int qwc, int depth)
+dumpData(uint32 *data, int qwc, int depth)
 {
 	while(qwc--){
 		float *fdata = (float*)data;
@@ -22,17 +23,17 @@ dumpData(uint *data, int qwc, int depth)
 }
 
 void
-dumpDma(uint *packet, int data)
+dumpDma(uint32 *packet, int data)
 {
-	uint *addr, *next;
-	uint *stack[2];
-	uint qwc;
+	uint32 *addr, *next;
+	uint32 *stack[2];
+	uint32 qwc;
 	int sp = 0;
 	int end = 0;
 	printf("packet start: %p\n", packet);
 	while(!end){
 		qwc = packet[0]&0xFFFF;
-		addr = (uint*)packet[1];
+		addr = (uint32*)packet[1];
 		indent(sp);
 		printf("%08X: %08X %08X %08X %08X\n", packet, packet[0], packet[1], packet[2], packet[3]);
 		switch((packet[0]>>28) & 7){

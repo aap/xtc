@@ -1,9 +1,9 @@
 #include "mdma.h"
 #include "xtc.h"
 #include "xtcpipe.h"
+#include "gs.h"
 
 #include <stdio.h>
-#include <libgraph.h>
 
 static void**
 upload(xtcPipeline *pipe, xtcPrimType primtype)
@@ -30,7 +30,7 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	mdmaAdd(l, xtcState.clipConsts);
 
 	mdmaAddW(l, VIFnop, VIFnop, STCYCL(4,4), UNPACK(V4_32, 3, vuGifTag));
-	mdmaAddGIFtag(l, 0, 1, 1,primtype, SCE_GIF_PACKED, 3, 0x412);
+	mdmaAddGIFtag(l, 0, 1, 1,primtype, GS_GIF_PACKED, 3, 0x412);
 	xtcMaterial *m = &xtcState.material;
 	float *scl;
 	if(mdmaGSregs.prmode & 1<<4)
