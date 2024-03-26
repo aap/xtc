@@ -79,7 +79,7 @@ memInitManaged(void)
 	mdmaFree = free_managed;
 }
 
-#define ALIGN16(x) ((x) + 0xF & ~0xF) 
+#define ALIGN16(x) (((x) + 0xF) & ~0xF)
 void*
 malloc_managed(size_t sz)
 {

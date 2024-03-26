@@ -266,7 +266,7 @@ packVertices(uint32 *data, xtcpVertAttrib *desc, uint128 *verts, uint32 vertCoun
 			verts += stride;
 		}
 		while((uint32)i8p & 3) *i8p++ = 0;
-		data = (int32*)i8p;
+		data = (uint32*)i8p;
 		break;
 
 	default:

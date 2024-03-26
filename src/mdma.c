@@ -204,7 +204,7 @@ mdmaResetPath()
 static void
 mdmaResetDma()
 {
-	uint32 stat, ctrl;
+	uint32 stat;
 
 	write32(DMA_REG_VIF0(DMA_CHCR), 0);
 	write32(DMA_REG_VIF0(DMA_MADR), 0);
@@ -348,7 +348,7 @@ void
 mdmaAdd(mdmaList *list, uint128 q)
 {
 	if(!(list->size < list->limit)) {
-		printf("chain limit: %d %d\n", list->size < list->limit);
+		printf("chain limit: %d %d\n", list->size, list->limit);
 	}
 	assert(list->size < list->limit);
 	list->p[list->size++] = q;
