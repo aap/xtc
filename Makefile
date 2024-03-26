@@ -13,7 +13,7 @@ CSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.c))
 VUSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.dsm))
 
 #CFLAGS := -fno-common -fno-exceptions
-CFLAGS := -std=gnu99 -Os -fno-common -fno-exceptions ####-ffunction-sections -fdata-sections
+CFLAGS := -std=gnu99 -Os -fno-common -fno-exceptions -Werror-implicit-function-declaration ####-ffunction-sections -fdata-sections
 
 LIBS=	$(SCELIBDIR)/libgraph.a	\
 	$(SCELIBDIR)/libdma.a	\
@@ -23,12 +23,7 @@ LIBS=	$(SCELIBDIR)/libgraph.a	\
 	$(SCELIBDIR)/libcdvd.a	\
 	$(SCELIBDIR)/libscf.a
 
-
-GCCLIB := /usr/local/sce/ee/gcc/lib/gcc-lib/ee/3.2-ee-030926
-CRT_BEGIN := build/crt0.o $(GCCLIB)/crti.o $(GCCLIB)/crtbegin.o
-CRT_END := $(GCCLIB)/crtend.o $(GCCLIB)/crtn.o
-
-OBJ := $(addprefix $(OBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o))
+OBJ := build/crt0.o $(addprefix $(OBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o))
 DEP := $(addprefix $(OBJDIR)/,$(CSRC:.c=.d) $(CXXSRC:.cpp=.d))
 
 ASINC := $(addprefix -I,$(SRCDIRS))
@@ -36,9 +31,9 @@ INC := $(addprefix -I,$(SRCDIRS))	\
 	-I/usr/local/sce/common/include	\
 	-I/usr/local/sce/ee/include
 
-$(TARGET).elf: build/crt0.o $(OBJ)
+$(TARGET).elf: $(OBJ)
 	echo $(OBJ)
-	$(CXX) -o $@ $(CRT_BEGIN) $(OBJ) $(LIBS) $(CRT_END) -T /usr/local/sce/ee/lib/app.cmd -L/usr/local/sce/ee/lib -lm -nostartfiles -Wl,--gc-sections
+	$(CXX) -o $@ $(OBJ) $(LIBS) -T /usr/local/sce/ee/lib/app.cmd -L/usr/local/sce/ee/lib -lm -mno-crt0 -Wl,--gc-sections
 
 run: $(TARGET).elf
 	dsedb -r run $(TARGET).elf
@@ -53,7 +48,7 @@ $(OBJDIR)/%.o: $(OBJDIR)/%.dsm_x
 
 $(OBJDIR)/%.dsm_x: %.dsm
 	@mkdir -p $(@D)
-	joinvu $< | cpp $(ASINC) | grep -v '^#' > $@
+	sh joinvu $< | cpp $(ASINC) | grep -v '^#' > $@
 
 $(OBJDIR)/%.o: %.c
 	@mkdir -p $(@D)
