@@ -1,50 +1,42 @@
-CC=ee-gcc
-CXX=ee-g++
+TARGET=xtcdemo_ps2sdk
 
-TARGET=xtcdemo
+TOOLCHAIN_PREFIX ?= mips64r5900el-ps2-elf-
+CC := $(TOOLCHAIN_PREFIX)gcc
+CXX := $(TOOLCHAIN_PREFIX)g++
+AS := $(TOOLCHAIN_PREFIX)as
 
 SRCDIRS := src src/vu1
-OBJDIR := build
-
-SCELIBDIR := /usr/local/sce/ee/lib
+OBJDIR := build-ps2sdk
 
 CXXSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.cpp))
 CSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.c))
 VUSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.dsm))
 
-#CFLAGS := -fno-common -fno-exceptions
-CFLAGS := -std=gnu99 -Os -fno-common -fno-exceptions -Werror-implicit-function-declaration ####-ffunction-sections -fdata-sections
+CFLAGS := -D_EE -D_PS2SDK -std=gnu99 -G0 -Og -g -fno-common -fno-exceptions -Wall -Werror-implicit-function-declaration
 
-LIBS=	$(SCELIBDIR)/libgraph.a	\
-	$(SCELIBDIR)/libdma.a	\
-	$(SCELIBDIR)/libmc.a	\
-	$(SCELIBDIR)/libpc.a	\
-	$(SCELIBDIR)/libpad.a	\
-	$(SCELIBDIR)/libcdvd.a	\
-	$(SCELIBDIR)/libscf.a
+LIBS=
 
-OBJ := build/crt0.o $(addprefix $(OBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o))
+OBJ := $(addprefix $(OBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o))
 DEP := $(addprefix $(OBJDIR)/,$(CSRC:.c=.d) $(CXXSRC:.cpp=.d))
 
 ASINC := $(addprefix -I,$(SRCDIRS))
 INC := $(addprefix -I,$(SRCDIRS))	\
-	-I/usr/local/sce/common/include	\
-	-I/usr/local/sce/ee/include
+	-I$(PS2SDK)/common/include	    \
+	-I$(PS2SDK)/ee/include
 
 $(TARGET).elf: $(OBJ)
 	echo $(OBJ)
-	$(CXX) -o $@ $(OBJ) $(LIBS) -T /usr/local/sce/ee/lib/app.cmd -L/usr/local/sce/ee/lib -lm -mno-crt0 -Wl,--gc-sections
+	$(CXX) -o $@ $(OBJ) $(LIBS) -T $(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib
 
 run: $(TARGET).elf
 	dsedb -r run $(TARGET).elf
 
-build/crt0.o:
-	@mkdir -p $(@D)
-	$(CC) -c -xassembler-with-cpp -o $@ /usr/local/sce/ee/lib/crt0.s
+clean:
+	rm -rf $(OBJ) $(TARGET)
 
 $(OBJDIR)/%.o: $(OBJDIR)/%.dsm_x
 	@mkdir -p $(@D)
-	ee-dvp-as -alm=$(@:.o=.lst) $(ASINC) -stalls-pipeline -no-fetching $< -o $@
+	dvp-as -alm=$(@:.o=.lst) $(ASINC) $< -o $@
 
 $(OBJDIR)/%.dsm_x: %.dsm
 	@mkdir -p $(@D)

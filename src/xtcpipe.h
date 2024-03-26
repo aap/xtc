@@ -1,3 +1,5 @@
+#ifndef XTCPIPE_H_
+#define XTCPIPE_H_
 
 enum {
 	vuLight		= 0x3D0,
@@ -18,3 +20,5 @@ enum {
 
 extern int primSize[];
 extern int primRepeat[];
+
+#endif // XTCPIPE_H_

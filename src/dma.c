@@ -1,5 +1,6 @@
 #include <stdio.h>
-#include <eetypes.h>
+
+#include "types.h"
 
 static void
 indent(int n)
@@ -9,12 +10,12 @@ indent(int n)
 }
 
 static void
-dumpData(uint *data, int qwc, int depth)
+dumpData(uint32 *data, int qwc, int depth)
 {
 	while(qwc--){
 		float *fdata = (float*)data;
 		indent(depth+1);
-		printf("%08X: ", data);
+		printf("%08X: ", (uint32)data);
 		printf("%08X %08X %08X %08X\t", data[0], data[1], data[2], data[3]);
 		printf("%.3f %.3f %.3f %.3f\n", fdata[0], fdata[1], fdata[2], fdata[3]);
 		data += 4;
@@ -22,19 +23,19 @@ dumpData(uint *data, int qwc, int depth)
 }
 
 void
-dumpDma(uint *packet, int data)
+dumpDma(uint32 *packet, int data)
 {
-	uint *addr, *next;
-	uint *stack[2];
-	uint qwc;
+	uint32 *addr, *next;
+	uint32 *stack[2];
+	uint32 qwc;
 	int sp = 0;
 	int end = 0;
 	printf("packet start: %p\n", packet);
 	while(!end){
 		qwc = packet[0]&0xFFFF;
-		addr = (uint*)packet[1];
+		addr = (uint32*)packet[1];
 		indent(sp);
-		printf("%08X: %08X %08X %08X %08X\n", packet, packet[0], packet[1], packet[2], packet[3]);
+		printf("%08X: %08X %08X %08X %08X\n", (uint32)packet, packet[0], packet[1], packet[2], packet[3]);
 		switch((packet[0]>>28) & 7){
 		case 0:
 			indent(sp);
@@ -98,6 +99,6 @@ dumpDma(uint *packet, int data)
 		}
 		packet = next;
 	}
-	printf("packet end\n\n\n", packet);
+	printf("packet end\n\n\n");
 }
 
