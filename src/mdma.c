@@ -502,12 +502,6 @@ uint32 gsAllocPtr;
 uint32 gsStart;
 const uint32 gsEnd = (4*1024*1024)/4/64;
 
-#define SCE_GS_SET_DISPLAY_RAW(dx, dy, magh, magv, dw, dh)\
-    ((uint64)((dx)) | \
-    ((uint64)((dy)) << 12) | \
-    ((uint64)(magh) << 23)  | ((uint64)(magv) << 27) | \
-    ((uint64)(dw) << 32)    | ((uint64)(dh) << 44))
-
 void
 mdmaInitDisp(mdmaDispBuffer *disp, int width, int height, int psm)
 {
@@ -534,7 +528,7 @@ mdmaInitDisp(mdmaDispBuffer *disp, int width, int height, int psm)
 	disp->dispfb1 = 0;
 	disp->dispfb2 = GS_SET_DISPFB2(0, width/64, psm, 0, 0);
 	disp->display1 = 0;
-	disp->display2 = SCE_GS_SET_DISPLAY_RAW(dx, dy, magh, magv, dw, dh);
+	disp->display2 = GS_SET_DISPLAY(dx, dy, magh, magv, dw, dh);
 }
 
 void
