@@ -1,0 +1,7 @@
+#!/bin/sh
+
+name=`echo $1 | sed 's/\./_/g'`
+
+(echo 'const char *'$name'_src ='
+ cat $1 | sed 's/.*/"&\\n"/'
+ echo ';') > inc/$1.inc

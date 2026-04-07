@@ -1,0 +1,16 @@
+const char *simple_vert_src =
+"#version 460\n"
+"\n"
+"layout(location = 0) in vec3 in_pos;\n"
+"layout(location = 1) in vec4 in_color;\n"
+"\n"
+"uniform mat4 u_matrix;\n"
+"\n"
+"out vec4 v_color;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	gl_Position = u_matrix * vec4(in_pos, 1.0);\n"
+"	v_color = in_color;\n"
+"}\n"
+;
