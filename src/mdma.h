@@ -1,28 +1,22 @@
-#include <sys/types.h>
+#ifndef MDMA_H_
+#define MDMA_H_
+
+#include "types.h"
+
 #include <string.h>
-#include <eetypes.h>
-#include <libdma.h>
+#include <sys/types.h>
 
 #define nil NULL
 #ifndef nelem
 #define nelem(arr) (sizeof(arr)/sizeof(arr[0]))
 #endif
 
-typedef long long int64;
-typedef unsigned long long uint64;
-typedef int int32;
-typedef unsigned int uint32;
-typedef short int16;
-typedef unsigned short uint16;
-typedef signed char int8;
-typedef unsigned char uint8;
-typedef uint32 uintptr;
-
-typedef u_long128 uint128;
-#define MAKE128(RES,MSB,LSB) \
-	__asm__ ( "pcpyld %0, %1, %2" : "=r" (RES) : "r" ((uint64)(MSB)), "r" ((uint64)(LSB)))
-#define UINT64(HIGH,LOW) (((uint64)(uint32)(HIGH))<<32 | ((uint64)(uint32)(LOW)))
-#define MAKEQ(RES,W3,W2,W1,W0) MAKE128(RES,UINT64(W3,W2),UINT64(W1,W0))
+typedef enum DMA_CHAN DMA_CHAN;
+enum DMA_CHAN {
+	DMA_CHAN_VIF0 = 0x10008000,
+	DMA_CHAN_VIF1 = 0x10009000,
+	DMA_CHAN_GIF = 0x1000A000,
+};
 
 enum {
 	IntFlg  = 0x80000000,
@@ -37,26 +31,25 @@ enum {
 	DMAend  = 0x70000000,
 
 	VIFnop  = 0,
-	VIFstcycl       = 0x01000000,
-	VIFoffset       = 0x02000000,
-	VIFbase         = 0x03000000,
-	VIFitop         = 0x04000000,
-	VIFstmod        = 0x05000000,
-	VIFmskpath3     = 0x06008000,
-	VIFunmskpath3   = 0x06000000,
-	VIFmark         = 0x07000000,
-	VIFflushe       = 0x10000000,
-	VIFflush        = 0x11000000,
-	VIFflusha       = 0x13000000,
-	VIFmscal        = 0x14000000,
-	VIFmscalf       = 0x15000000,
-	VIFmscnt        = 0x17000000,
-	VIFstmask       = 0x20000000,
-	VIFstrow        = 0x30000000,
-	VIFstcol        = 0x31000000,
-	VIFmpg          = 0x4A000000,
-	VIFdirect       = 0x50000000,
-	VIFdirecthl     = 0x51000000,
+	VIFstcycl       = 0x01,
+	VIFoffset       = 0x02,
+	VIFbase         = 0x03,
+	VIFitop         = 0x04,
+	VIFstmod        = 0x05,
+	VIFmskpath3     = 0x06,
+	VIFmark         = 0x07,
+	VIFflushe       = 0x10,
+	VIFflush        = 0x11,
+	VIFflusha       = 0x13,
+	VIFmscal        = 0x14,
+	VIFmscalf       = 0x15,
+	VIFmscnt        = 0x17,
+	VIFstmask       = 0x20,
+	VIFstrow        = 0x30,
+	VIFstcol        = 0x31,
+	VIFmpg          = 0x4A,
+	VIFdirect       = 0x50,
+	VIFdirecthl     = 0x51,
 
 	V4_32 = 0x6C
 };
@@ -85,17 +78,23 @@ enum {
 	UNPACK_INTR  = 0x80000000
 };
 
-#define UNPACK(type, nq, offset) ((type)<<24 | (nq)<<16 | (offset))
-#define STCYCL(WL,CL) (VIFstcycl | (WL)<<8 | (CL))
+#define MAKE_VIF_CODE(_cmd, _num, _immediate) \
+	(((uint32)(_cmd) << 24) | ((uint32)(_num) << 16) | ((uint32)(_immediate)))
 
-
-
-
-
-
-
-extern sceDmaChan *mdmaGIF;
-extern sceDmaChan *mdmaVIF;
+#define VIF_NOP() (MAKE_VIF_CODE(VIFnop, 0, 0))
+#define VIF_STCYCL(WL, CL) (MAKE_VIF_CODE(VIFstcycl, 0, (WL) << 8 | (CL)))
+#define VIF_OFFSET(off) (MAKE_VIF_CODE(VIFoffset, 0, off))
+#define VIF_BASE(base) (MAKE_VIF_CODE(VIFbase, 0, base))
+#define VIF_ITOP(addr) (MAKE_VIF_CODE(VIFitop, 0, addr))
+#define VIF_STMASK() (MAKE_VIF_CODE(VIFstmask, 0, 0))
+#define VIF_STMOD(mode) (MAKE_VIF_CODE(VIFstmod, 0, mode))
+#define VIF_MSKPATH3(mask) (MAKE_VIF_CODE(VIFmskpath3, 0, ((mask) & 1) << 15))
+#define VIF_FLUSH() (MAKE_VIF_CODE(VIFflush, 0, 0))
+#define VIF_MSCAL(addr) (MAKE_VIF_CODE(VIFmscal, 0, addr))
+#define VIF_MSCALF(addr) (MAKE_VIF_CODE(VIFmscalf, 0, addr))
+#define VIF_MSCNT(addr) (MAKE_VIF_CODE(VIFmscnt, 0, addr))
+#define VIF_DIRECT(size) (MAKE_VIF_CODE(VIFdirect, 0, size))
+#define VIF_UNPACK(type, nq, offset) (MAKE_VIF_CODE(type, nq, offset))
 
 void mdmaInit(void);
 
@@ -133,8 +132,8 @@ void mdmaRetDirect(mdmaList *list, uint16 qwc);
 void **mdmaNext(mdmaList *list, void *next, uint16 qwc, uint32 w0, uint32 w1);
 void **mdmaCall(mdmaList *list, uint16 qwc, void *addr, uint32 w0, uint32 w1);
 
-void mdmaSend(sceDmaChan *chan, mdmaList *list);
-void mdmaSendSynch(sceDmaChan *chan, mdmaList *list);
+void mdmaSend(DMA_CHAN chan, mdmaList *list);
+void mdmaSendSynch(DMA_CHAN chan, mdmaList *list);
 
 
 /*
@@ -238,3 +237,5 @@ extern struct mdmaGSregs mdmaGSregs, mdmaCurGSregs;
 
 void mdmaSetGsRegs(mdmaList *list);
 void mdmaFlushGsRegs(mdmaList *list);
+
+#endif // MDMA_H_

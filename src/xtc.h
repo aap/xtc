@@ -1,6 +1,12 @@
-#define ENUM(name) \
-typedef enum name name; \
-enum name
+#ifndef XTC_H_
+#define XTC_H_
+
+#include "mdma.h"
+#include "types.h"
+
+#define ENUM(name)              \
+	typedef enum name name; \
+	enum name
 
 #define STRUCT(name) \
 typedef struct name name; \
@@ -435,10 +441,15 @@ struct xtcState
 	uint64 tex0;
 	uint64 tex1;
 
-	uint128 matrix0;
-	uint128 matrix1;
-	uint128 matrix2;
-	uint128 matrix3;
+	union {
+		float matrix_f[16];
+		struct {
+			uint128 matrix0;
+			uint128 matrix1;
+			uint128 matrix2;
+			uint128 matrix3;
+		};
+	};
 	uint128 xyzwScale;
 	uint128 xyzwOffset;
 	uint128 clipConsts;
@@ -454,3 +465,5 @@ struct xtcState
 	xtcLight lights[8];
 };
 extern struct xtcState xtcState;
+
+#endif // XTC_H_

@@ -33,7 +33,7 @@ xtcpCombineMatrix(void)
 {
 	float t[16];
 	matmul(t, xtcState.view, xtcState.world);
-	matmul((float*)&xtcState.matrix0, xtcState.proj, t);
+	matmul(xtcState.matrix_f, xtcState.proj, t);
 }
 
 void
@@ -50,8 +50,8 @@ xtcpUploadLights(void)
 			ndir++;
 	}
 
-
-	mdmaCnt(xtcState.list, 2+2*ndir, STCYCL(4,4), UNPACK(V4_32, 2+2*ndir, vuLight));
+	mdmaCnt(xtcState.list, 2 + 2 * ndir, VIF_STCYCL(4, 4),
+	    VIF_UNPACK(V4_32, 2 + 2 * ndir, vuLight));
 
 	c = &xtcState.ambient;
 	mdmaAddF(xtcState.list, c->r, c->g, c->b, *(float*)&lightTypeAmbient);
@@ -143,22 +143,22 @@ void
 xtcpRefVertices(uint128 *verts, int32 numVerts, xtcBatchInfo *bi, uint32 stride)
 {
 	mdmaList *l = xtcState.list;
-	uint32 call = VIFmscalf + 0;
+	uint32 call = VIF_MSCALF(0);
 
 	int vertCount = bi->batchSize;
 	for(int i = 0; i < bi->numBatches-1; i++) {
-		mdmaRef(l, verts, vertCount*stride, 
-			STCYCL(4,4), UNPACK(V4_32, vertCount*stride, 0x8000 + 0));
-		mdmaCnt(l, 0, VIFitop + vertCount, call);
-		call = VIFmscnt;
+		mdmaRef(l, verts, vertCount * stride, VIF_STCYCL(4, 4),
+		    VIF_UNPACK(V4_32, vertCount * stride, 0x8000 + 0));
+		mdmaCnt(l, 0, VIF_ITOP(vertCount), call);
+		call = VIF_MSCNT(0);
 		verts += (vertCount - bi->repeat)*stride;
 	}
 
 	vertCount = bi->lastBatchSize;
-	mdmaRef(l, verts, vertCount*stride, 
-		STCYCL(4,4), UNPACK(V4_32, vertCount*stride, 0x8000 + 0));
-	mdmaCnt(l, 1, VIFitop + vertCount, call);
-	mdmaAddW(l, VIFnop, VIFnop, VIFflush, VIFflush);
+	mdmaRef(l, verts, vertCount * stride, VIF_STCYCL(4, 4),
+	    VIF_UNPACK(V4_32, vertCount * stride, 0x8000 + 0));
+	mdmaCnt(l, 1, VIF_ITOP(vertCount), call);
+	mdmaAddW(l, VIF_NOP(), VIF_NOP(), VIF_FLUSH(), VIF_FLUSH());
 }
 
 /*
@@ -266,7 +266,7 @@ packVertices(uint32 *data, xtcpVertAttrib *desc, uint128 *verts, uint32 vertCoun
 			verts += stride;
 		}
 		while((uint32)i8p & 3) *i8p++ = 0;
-		data = (int32*)i8p;
+		data = (uint32 *)i8p;
 		break;
 
 	default:
@@ -303,33 +303,34 @@ xtcpBuildList(xtcPrimList *list, xtcBatchInfo *bi)
 	list->pipe = xtcState.pipe;
 	list->primtype = imstate.primtype;
 
-	uint32 call = VIFmscalf + 0;
-	uint32 wait = VIFnop;
+	uint32 call = VIF_MSCALF(0);
+	uint32 wait = VIF_NOP();
 	uint32 vertCount;
 	uint128 *verts = imstate.vertstash;
 	for(int i = 0; i < bi->numBatches; i++) {
 		if(i == bi->numBatches-1) {
 			vertCount = bi->lastBatchSize;
-			wait = VIFflush;
+			wait = VIF_FLUSH();
 			*data++ = DMAret + lastBatchQWC-1;
 		} else {
 			vertCount = bi->batchSize;
 			*data++ = DMAcnt + batchQWC-1;
 		}
 		*data++ = 0;
-		*data++ = VIFnop;
-		*data++ = STCYCL(1, desc->stride);
+		*data++ = VIF_NOP();
+		*data++ = VIF_STCYCL(1, desc->stride);
 
 		for(int j = 0; j < desc->numAttribs; j++)
 			data = packVertices(data, &desc->attribs[j], verts, vertCount, desc->stride);
 		verts += (vertCount - bi->repeat)*desc->stride;
 
-		*data++ = VIFitop + vertCount;
+		*data++ = VIF_ITOP(vertCount);
 		*data++ = call;
 		*data++ = wait;
-		call = VIFmscnt;
+		call = VIF_MSCNT(0);
 
-		while((uint32)data & 0xF) *data++ = VIFnop;
+		while ((uint32)data & 0xF)
+			*data++ = VIF_NOP();
 	}
 
 //	dumpshit(list->list, list->size);
@@ -342,7 +343,7 @@ xtcpSetMicrocode(xtcMicrocode *code)
 {
 	if(code == currentCode)
 		return;
-	mdmaCall(xtcState.list, 0, code->code, VIFnop, VIFnop);
+	mdmaCall(xtcState.list, 0, code->code, VIF_NOP(), VIF_NOP());
 	currentCode = code;
 }
 
@@ -400,7 +401,7 @@ xtcPrimListDraw(xtcPrimList *pl)
 	void **next = pl->pipe->upload(pl->pipe, pl->primtype);
 	*next = mdmaSkip(xtcState.list, 0);
 
-	mdmaCall(xtcState.list, 0, pl->list, VIFnop, VIFnop);
+	mdmaCall(xtcState.list, 0, pl->list, VIF_NOP(), VIF_NOP());
 }
 
 
@@ -520,6 +521,9 @@ xtcRestartStrip(void)
 	case XTC_TRISTRIP:
 		xtcpKickVertex(imstate.code->vertFmt);
 		imstate.restartstrip = 1;
+		break;
+	default:
+		printf("%s: Unsupported primtype %04x\n", __FUNCTION__, imstate.primtype);
 		break;
 	}
 }
