@@ -50,6 +50,36 @@ $(TARGET).elf: build/crt0.o $(OBJ) $(MDMAOBJ)
 run: $(TARGET).elf
 	dsedb -r run $(TARGET).elf
 
+build/crt0.o:
+	@mkdir -p $(@D)
+	$(CC) -c -xassembler-with-cpp -o $@ $(SCELIBDIR)/crt0.s
+
+$(OBJDIR)/%.o: $(OBJDIR)/%.dsm_x
+	@mkdir -p $(@D)
+	ee-dvp-as -alm=$(@:.o=.lst) $(ASINC) -stalls-pipeline -no-fetching $< -o $@
+
+$(OBJDIR)/%.dsm_x: %.dsm
+	@mkdir -p $(@D)
+	joinvu $< | cpp $(ASINC) | grep -v '^#' > $@
+
+$(OBJDIR)/mdma/%.o: $(MDMADIR)/%.c $(MDMADIR)/mdma.h $(MDMADIR)/mdmaplat.h
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJDIR)/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+$(OBJDIR)/%.o: %.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJDIR)/%.d: %.c
+	@mkdir -p $(@D)
+	$(CC) -MM -MT $(@:.d=.o) $(CFLAGS) $(INC) $< > $@
+$(OBJDIR)/%.d: %.cpp
+	@mkdir -p $(@D)
+	$(CXX) -MM -MT $(@:.d=.o) $(CFLAGS) $(INC) $< > $@
+
 # ---- freesce ---------------------------------------------------------------
 # Two roots, because they are two different axes. FREESCE is the SDK vintage --
 # headers, libraries, crt0, app.cmd -- and there is one per SDK version. The
@@ -132,6 +162,8 @@ $(FSOBJDIR)/%.o: %.c
 $(FSOBJDIR)/%.o: %.cpp
 	@mkdir -p $(@D)
 	$(FSCXX) $(FSFLAGS) $(FSINC) -c $< -o $@
+
+.PHONY: run freesce clean
 
 clean:
 	rm -rf build $(TARGET).elf $(TARGET)_freesce.elf
