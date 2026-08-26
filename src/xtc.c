@@ -1,7 +1,7 @@
-#include "mdma.h"
 #include "xtc.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 
 #include <libgraph.h>
@@ -122,8 +122,8 @@ void
 xtcScissor(int x, int y, int width, int height)
 {
 	y = xtcState.height - (y+height);
-	mdmaGSregs.c1.scissor = SCE_GS_SET_SCISSOR(x, x+width-1, y, y+height-1);
-	mdmaGSregs.c2.scissor = mdmaGSregs.c1.scissor;
+	xtcgRegs.c1.scissor = SCE_GS_SET_SCISSOR(x, x+width-1, y, y+height-1);
+	xtcgRegs.c2.scissor = xtcgRegs.c1.scissor;
 }
 
 void
@@ -145,58 +145,63 @@ xtcClear(int mask)
 	const uint32 w = xtcState.width;
 	const uint32 h = xtcState.height;
 	const uint32 nstrips = xtcState.width/32;
+	mdmaList *l = xtcState.list;
 
 	if(mask == 0)
 		return;
 
-	mdmaFlushGsRegs(xtcState.list);
+	xtcgFlushRegs(l);
 
-	mdmaCntDirect(xtcState.list, 7 + nstrips*2);
-	mdmaAddGIFtag(xtcState.list, 6 + nstrips*2,
-		1, 1,SCE_GS_PRIM_SPRITE, SCE_GIF_PACKED, 1, 0xe);
-	mdmaCurGSregs.c1.test = SCE_GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, 1);
-	mdmaAddAD(xtcState.list, SCE_GS_TEST_1, mdmaCurGSregs.c1.test);
-	mdmaCurGSregs.c1.scissor = SCE_GS_SET_SCISSOR(0, w-1, 0, h-1);
-	mdmaAddAD(xtcState.list, SCE_GS_SCISSOR_1, mdmaCurGSregs.c1.scissor);
-	mdmaCurGSregs.prmode = SCE_GS_SET_PRMODE(0, 0, 0, 0, 0, 0, 0, 0);
-	mdmaAddAD(xtcState.list, SCE_GS_PRMODE, mdmaCurGSregs.prmode);
-	if(mask & XTC_COLORBUF)
-		mdmaCurGSregs.c1.frame = (uint32)mdmaGSregs.c1.frame;
-	else
-		mdmaCurGSregs.c1.frame = 0xFFFFFFFF00000000 | mdmaGSregs.c1.frame;
-	if(mask & XTC_DEPTHBUF)
-		mdmaCurGSregs.c1.zbuf = (uint32)mdmaGSregs.c1.zbuf;
-	else
-		mdmaCurGSregs.c1.zbuf = 0x100000000 | mdmaGSregs.c1.zbuf;
-	mdmaAddAD(xtcState.list, SCE_GS_FRAME_1, mdmaCurGSregs.c1.frame);
-	mdmaAddAD(xtcState.list, SCE_GS_ZBUF_1, mdmaCurGSregs.c1.zbuf);
-	mdmaAddAD(xtcState.list, SCE_GS_RGBAQ, xtcState.clearcol);
+	mdmaCnt(l, 7 + nstrips*2);
+		mdmaBeginDirect(l, 7 + nstrips*2, 0);
+			mdmaBeginGifTag(l, 6 + nstrips*2, 1, 1,SCE_GS_PRIM_SPRITE,
+				GIF_PACKED, 1, GIF_AD);
+			xtcgCurRegs.c1.test = SCE_GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, 1);
+			mdmaAddAD(l, SCE_GS_TEST_1, xtcgCurRegs.c1.test);
+			xtcgCurRegs.c1.scissor = SCE_GS_SET_SCISSOR(0, w-1, 0, h-1);
+			mdmaAddAD(l, SCE_GS_SCISSOR_1, xtcgCurRegs.c1.scissor);
+			xtcgCurRegs.prmode = SCE_GS_SET_PRMODE(0, 0, 0, 0, 0, 0, 0, 0);
+			mdmaAddAD(l, SCE_GS_PRMODE, xtcgCurRegs.prmode);
+			if(mask & XTC_COLORBUF)
+				xtcgCurRegs.c1.frame = (uint32)xtcgRegs.c1.frame;
+			else
+				xtcgCurRegs.c1.frame = 0xFFFFFFFF00000000 | xtcgRegs.c1.frame;
+			if(mask & XTC_DEPTHBUF)
+				xtcgCurRegs.c1.zbuf = (uint32)xtcgRegs.c1.zbuf;
+			else
+				xtcgCurRegs.c1.zbuf = 0x100000000 | xtcgRegs.c1.zbuf;
+			mdmaAddAD(l, SCE_GS_FRAME_1, xtcgCurRegs.c1.frame);
+			mdmaAddAD(l, SCE_GS_ZBUF_1, xtcgCurRegs.c1.zbuf);
+			mdmaAddAD(l, SCE_GS_RGBAQ, xtcState.clearcol);
 
-	for(int i = 0; i < nstrips; i++){
-		int x = 2048 - w/2;
-		int y = 2048 - h/2;
-		mdmaAddAD(xtcState.list, SCE_GS_XYZ2,
-			SCE_GS_SET_XYZ((x+i*32)<<4, y<<4, xtcState.cleardepth));
-		mdmaAddAD(xtcState.list, SCE_GS_XYZ2,
-			SCE_GS_SET_XYZ((x+(i+1)*32)<<4, (y+xtcState.height)<<4, xtcState.cleardepth));
-	}
+			for(int i = 0; i < nstrips; i++){
+				int x = 2048 - w/2;
+				int y = 2048 - h/2;
+				mdmaAddAD(l, SCE_GS_XYZ2,
+					SCE_GS_SET_XYZ((x+i*32)<<4, y<<4, xtcState.cleardepth));
+				mdmaAddAD(l, SCE_GS_XYZ2,
+					SCE_GS_SET_XYZ((x+(i+1)*32)<<4, (y+xtcState.height)<<4, xtcState.cleardepth));
+			}
+			mdmaEndGifTag(l);
+		mdmaEndDirect(l);
+	mdmaCloseTag(l);
 }
 
 void
-xtcSetDraw(mdmaDrawBuffer *draw)
+xtcSetDraw(xtcgDrawBuffer *draw)
 {
-	mdmaGSregs.c1.frame &= 0xFFFFFFFF00000000;
-	mdmaGSregs.c2.frame &= 0xFFFFFFFF00000000;
-	mdmaGSregs.c1.zbuf &= 0xFFFFFFFF00000000;
-	mdmaGSregs.c2.zbuf &= 0xFFFFFFFF00000000;
+	xtcgRegs.c1.frame &= 0xFFFFFFFF00000000;
+	xtcgRegs.c2.frame &= 0xFFFFFFFF00000000;
+	xtcgRegs.c1.zbuf &= 0xFFFFFFFF00000000;
+	xtcgRegs.c2.zbuf &= 0xFFFFFFFF00000000;
 
-	mdmaGSregs.c1.frame |= (uint32)draw->frame1;
-	mdmaGSregs.c2.frame |= (uint32)draw->frame2;
-	mdmaGSregs.c1.zbuf |= (uint32)draw->zbuf1;
-	mdmaGSregs.c2.zbuf |= (uint32)draw->zbuf2;
+	xtcgRegs.c1.frame |= (uint32)draw->frame1;
+	xtcgRegs.c2.frame |= (uint32)draw->frame2;
+	xtcgRegs.c1.zbuf |= (uint32)draw->zbuf1;
+	xtcgRegs.c2.zbuf |= (uint32)draw->zbuf2;
 
-	mdmaGSregs.c1.xyoffset = draw->xyoffset1;
-	mdmaGSregs.c2.xyoffset = draw->xyoffset2;
+	xtcgRegs.c1.xyoffset = draw->xyoffset1;
+	xtcgRegs.c2.xyoffset = draw->xyoffset2;
 }
 
 // TODO:
@@ -208,16 +213,16 @@ xtcEnable(xtceState state)
 	switch(state) {
 	case XTC_DEPTH_TEST:
 		xtcState.zte = 1;
-		mdmaGSregs.c1.test = (mdmaGSregs.c1.test & ~(3UL<<17)) | xtcState.ztst;
+		xtcgRegs.c1.test = (xtcgRegs.c1.test & ~(3UL<<17)) | xtcState.ztst;
 		break;
 	case XTC_ALPHA_TEST:
-		mdmaGSregs.c1.test |= 1;
+		xtcgRegs.c1.test |= 1;
 		break;
 	case XTC_BLEND:
-		mdmaGSregs.prmode |= 1<<6;
+		xtcgRegs.prmode |= 1<<6;
 		break;
 	case XTC_FOG:
-		mdmaGSregs.prmode |= 1<<5;
+		xtcgRegs.prmode |= 1<<5;
 		break;
 	case XTC_TEXTURE:
 		xtcState.tme = 1;
@@ -234,16 +239,16 @@ xtcDisable(xtceState state)
 	switch(state) {
 	case XTC_DEPTH_TEST:
 		xtcState.zte = 0;
-		mdmaGSregs.c1.test = (mdmaGSregs.c1.test & ~(3UL<<17)) | (1<<17);
+		xtcgRegs.c1.test = (xtcgRegs.c1.test & ~(3UL<<17)) | (1<<17);
 		break;
 	case XTC_ALPHA_TEST:
-		mdmaGSregs.c1.test &= ~1UL;
+		xtcgRegs.c1.test &= ~1UL;
 		break;
 	case XTC_BLEND:
-		mdmaGSregs.prmode &= ~(1UL<<6);
+		xtcgRegs.prmode &= ~(1UL<<6);
 		break;
 	case XTC_FOG:
-		mdmaGSregs.prmode &= ~(1UL<<5);
+		xtcgRegs.prmode &= ~(1UL<<5);
 		break;
 	case XTC_TEXTURE:
 		xtcState.tme = 0;
@@ -259,14 +264,14 @@ xtcDepthFunc(xtceDepthFunc func)
 {
 	xtcState.ztst = func<<17;
 	if(xtcState.zte)
-		mdmaGSregs.c1.test = (mdmaGSregs.c1.test & ~(3UL<<17)) | xtcState.ztst;
+		xtcgRegs.c1.test = (xtcgRegs.c1.test & ~(3UL<<17)) | xtcState.ztst;
 }
 
 void
 xtcAlphaFunc(xtceAlphaFunc func, int ref, xtceAlphaFail fail)
 {
 	ref &= 0xFF;
-	mdmaGSregs.c1.test = (mdmaGSregs.c1.test & ~(0x1FFFUL<<1)) |
+	xtcgRegs.c1.test = (xtcgRegs.c1.test & ~(0x1FFFUL<<1)) |
 		func<<1 | ref<<4 | fail<<12;
 }
 
@@ -274,7 +279,7 @@ void
 xtcBlendFunc(xtceAlpha a, xtceAlpha b, xtceAlpha c, xtceAlpha d, int fix)
 {
 	fix &= 0xFF;
-	mdmaGSregs.c1.alpha = SCE_GS_SET_ALPHA(a, b, c, d, fix);
+	xtcgRegs.c1.alpha = SCE_GS_SET_ALPHA(a, b, c, d, fix);
 }
 
 int64 blendTable[6][6] = {      // [src][dst]
@@ -293,7 +298,7 @@ xtcBlendFuncSrcDst(xtcBlendFactor src, xtcBlendFactor dst)
 	alpha = blendTable[src][dst];
 	if(alpha < 0)
 		return;
-	mdmaGSregs.c1.alpha = alpha;
+	xtcgRegs.c1.alpha = alpha;
 }
 
 // color is BBGGRR
@@ -304,7 +309,7 @@ xtcFog(float start, float end, uint32 col)
 
 	xtcState.fogstart = start;
 	xtcState.fogend = end;
-	mdmaGSregs.fogcol = col;
+	xtcgRegs.fogcol = col;
 
 	float scale = -255.0f/(end - start);
 	float shift = -end*scale;
@@ -325,10 +330,10 @@ xtcShadeModel(xtceShadeModel model)
 {
 	switch(model) {
 	case XTC_FLAT:
-		mdmaGSregs.prmode &= ~(1UL<<3);
+		xtcgRegs.prmode &= ~(1UL<<3);
 		break;
 	case XTC_SMOOTH:
-		mdmaGSregs.prmode |= 1UL<<3;
+		xtcgRegs.prmode |= 1UL<<3;
 		break;
 	}
 }
@@ -337,17 +342,17 @@ xtcShadeModel(xtceShadeModel model)
 void
 xtcPixelMask(uint32 mask)
 {
-	mdmaGSregs.c1.frame &= 0xFFFFFFFF;
-	mdmaGSregs.c1.frame |= (uint64)mask << 32;
+	xtcgRegs.c1.frame &= 0xFFFFFFFF;
+	xtcgRegs.c1.frame |= (uint64)mask << 32;
 }
 
 void
 xtcDepthMask(int mask)
 {
 	if(mask)
-		mdmaGSregs.c1.frame |= (uint64)1 << 32;
+		xtcgRegs.c1.frame |= (uint64)1 << 32;
 	else
-		mdmaGSregs.c1.frame &= ~((uint64)1 << 32);
+		xtcgRegs.c1.frame &= ~((uint64)1 << 32);
 }
 
 void
@@ -392,19 +397,19 @@ xtcSetList(mdmaList *list)
 void
 xtcInit(int width, int height, int depth)
 {
-	xtcState.pColorScale = (float*)&xtcState.colorScale;
-	xtcState.pColorScaleTex = (float*)&xtcState.colorScaleTex;
+	xtcState.pColorScale = (float*)&xtcState.colorScale[0];
+	xtcState.pColorScaleTex = (float*)&xtcState.colorScale[1];
 
 	xtcState.width = width;
 	xtcState.height = height;
 	xtcState.clearcol = 0;
 
-	memset(&mdmaGSregs, 0, sizeof(mdmaGSregs));
+	memset(&xtcgRegs, 0, sizeof(xtcgRegs));
 	xtcShadeModel(XTC_SMOOTH);
 	// everything disabled, always enable ztst in always mode
-	mdmaGSregs.c1.test = SCE_GS_SET_TEST(0, 1, 0, 0, 0, 0, 1, 1);
-	mdmaGSregs.c2.test = mdmaGSregs.c1.test;
-	mdmaGSregs.texa = SCE_GS_SET_TEXA(0, 0, 0x80);
+	xtcgRegs.c1.test = SCE_GS_SET_TEST(0, 1, 0, 0, 0, 0, 1, 1);
+	xtcgRegs.c2.test = xtcgRegs.c1.test;
+	xtcgRegs.texa = SCE_GS_SET_TEXA(0, 0, 0x80);
 	xtcState.zte = 0;
 	xtcState.ztst = 2<<17;	// GEQUAL
 
@@ -440,5 +445,5 @@ xtcInit(int width, int height, int depth)
 
 	xtcSetAmbient(51, 51, 51);
 
-	mdmaSetGsRegs(xtcState.list);
+	xtcgSetRegs(xtcState.list);
 }

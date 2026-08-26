@@ -1,10 +1,126 @@
+#include "mdma.h"
+
+#define nil NULL
+#ifndef nelem
+#define nelem(arr) (sizeof(arr)/sizeof(arr[0]))
+#endif
+
+typedef long long int64;
+typedef unsigned long long uint64;
+typedef int int32;
+typedef unsigned int uint32;
+typedef short int16;
+typedef unsigned short uint16;
+typedef signed char int8;
+typedef unsigned char uint8;
+typedef uint32 uintptr;
+typedef uint128_t uint128;
+
+/* C++ has no forward-declared enums (not in this vintage anyway), and does
+ * not need the typedef: the tag is already a type name. */
+#ifdef __cplusplus
+#define ENUM(name) enum name
+#else
 #define ENUM(name) \
 typedef enum name name; \
 enum name
+#endif
 
 #define STRUCT(name) \
 typedef struct name name; \
 struct name
+
+
+/*
+ * xtcg — the GS itself: video mode, display and drawing buffers, and the
+ * shadow of the register state that xtc flushes into a list.
+ */
+
+STRUCT(xtcgDispBuffer) {
+	// two circuits
+	uint64 pmode;
+	uint64 dispfb1;
+	uint64 dispfb2;
+	uint64 display1;
+	uint64 display2;
+	uint64 bgcolor;
+};
+
+STRUCT(xtcgDrawBuffer) {
+	// two contexts, prefixed by their own GIF tag so the whole
+	// struct can go to the GS as one DIRECT transfer
+	uint128 gifTag;
+	uint64 frame1;
+	uint64 ad_frame1;
+	uint64 frame2;
+	uint64 ad_frame2;
+	uint64 zbuf1;
+	uint64 ad_zbuf1;
+	uint64 zbuf2;
+	uint64 ad_zbuf2;
+	uint64 xyoffset1;
+	uint64 ad_xyoffset1;
+	uint64 xyoffset2;
+	uint64 ad_xyoffset2;
+	uint64 scissor1;
+	uint64 ad_scissor1;
+	uint64 scissor2;
+	uint64 ad_scissor2;
+};
+
+STRUCT(xtcgBuffers) {
+	xtcgDispBuffer disp[2];
+	xtcgDrawBuffer draw[2];
+};
+
+void xtcgResetGraph(int inter, int mode, int ff);
+void xtcgInitBuffers(xtcgBuffers *buffers, int width, int height, int psm, int zpsm);
+void xtcgSetDisp(xtcgDispBuffer *disp);
+void xtcgSetDraw(mdmaList *list, xtcgDrawBuffer *draw);
+void xtcgWaitVSynch(void);
+
+// GS memory above the frame and depth buffers, in 64-word blocks.
+// TODO: figure out a better way to deal with GS memory
+extern uint32 xtcgMemStart;
+extern const uint32 xtcgMemEnd;
+
+struct xtcgRegs {
+	struct {
+		uint64 frame;
+		uint64 zbuf;
+		uint64 xyoffset;
+		uint64 scissor;
+		uint64 test;
+		uint64 alpha;
+
+		uint64 tex0;
+		uint64 tex1;
+		uint64 clamp;
+	} c1, c2;
+	uint64 prmode;
+	uint64 fogcol;
+	uint64 texa;
+
+/*
+	miptbp1_1/2
+	miptbp2_1/2
+	fba_1/2
+
+	prmodecont
+
+	? texclut
+	? scanmsk
+	? dimx
+	? dthe
+	? colclamp
+	? pabe
+*/
+
+};
+extern struct xtcgRegs xtcgRegs, xtcgCurRegs;
+
+void xtcgSetRegs(mdmaList *list);
+void xtcgFlushRegs(mdmaList *list);
 
 
 STRUCT(xtcrBuffer) {
@@ -144,9 +260,13 @@ enum xtcpUsage {
 STRUCT(xtcpVertAttrib) {
 	uint32 usage;
 	uint32 offset;
+	// TODO: the code should give us the format it expects,
+	// the unpack is not really its business as long as the
+	// data arrives correctly
 	uint32 unpack;
 };
 
+// TODO: this, instead of vertFmt, is what the microcode should define
 STRUCT(xtcpBatchDesc) {
 	uint32 stride;
 	int numAttribs;
@@ -197,7 +317,7 @@ STRUCT(xtcMicrocode) {
 	uint32 vertCount;
 	uint32 numAttribs;
 	uint32 offset;
-	uint32 vertFmt;
+	uint32 vertFmt;	// TODO: replace by xtcpBatchDesc
 	uint32 numVerts[XTC_NUM_PRIMTYPES];
 	// pipeline code will know what to do with this (for now)
 	xtcMicrocodeSwitch swtch[0];
@@ -229,7 +349,8 @@ STRUCT(xtcImState) {
 	uint128 *vertstash;
 	void *vertptr;
 	int numVerts;
-	void **nextptr;
+	// the pipe's next-tag: in xtcEnd it is pointed past the vertices
+	mdmaTag *skiptag;
 	xtcPrimType primtype;
 	int restartstrip;
 };
@@ -240,7 +361,9 @@ void xtcpKickVertex(uint32 vertFmt);
 
 
 STRUCT(xtcPipeline) {
-	void **(*upload)(xtcPipeline *pipe, xtcPrimType primtype);
+	// returns the `next' tag it opened: the caller writes the vertices,
+	// then targets the tag past them
+	mdmaTag *(*upload)(xtcPipeline *pipe, xtcPrimType primtype);
 	xtcMicrocode *code;
 
 	xtcpBatchDesc desc;
@@ -323,7 +446,7 @@ enum {
 };
 
 void xtcClear(int mask);
-void xtcSetDraw(mdmaDrawBuffer *draw);
+void xtcSetDraw(xtcgDrawBuffer *draw);
 
 ENUM(xtceState) {
 	XTC_DEPTH_TEST,
@@ -442,8 +565,7 @@ struct xtcState
 	uint128 xyzwScale;
 	uint128 xyzwOffset;
 	uint128 clipConsts;
-	uint128 colorScale;
-	uint128 colorScaleTex;
+	uint128 colorScale[2];
 
 	float *pColorScale;
 	float *pColorScaleTex;

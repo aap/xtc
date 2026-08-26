@@ -1,27 +1,15 @@
-#include "mdma.h"
 #include "xtc.h"
 #include "xtcpipe.h"
 #include "m.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 
-int primSize[] = {
- [XTC_POINTS]	=	1,
- [XTC_LINELIST]	=	2,
- [XTC_LINESTRIP]	=	2,
- [XTC_TRILIST]	=	3,
- [XTC_TRISTRIP]	=	3,
-};
-
-int primRepeat[] = {
- [XTC_POINTS]	=	0,
- [XTC_LINELIST]	=	0,
- [XTC_LINESTRIP]	=	1,
- [XTC_TRILIST]	=	0,
- [XTC_TRISTRIP]	=	2,
-};
+// in xtcPrimType order: POINTS, LINELIST, LINESTRIP, TRILIST, TRISTRIP
+int primSize[] = { 1, 2, 2, 3, 3 };
+int primRepeat[] = { 0, 0, 1, 0, 2 };
 
 xtcImState imstate;
 
@@ -51,23 +39,30 @@ xtcpUploadLights(void)
 	}
 
 
-	mdmaCnt(xtcState.list, 2+2*ndir, STCYCL(4,4), UNPACK(V4_32, 2+2*ndir, vuLight));
+	mdmaList *list = xtcState.list;
 
-	c = &xtcState.ambient;
-	mdmaAddF(xtcState.list, c->r, c->g, c->b, *(float*)&lightTypeAmbient);
+	mdmaCnt(list, 2+2*ndir);
+		mdmaVifStCycl(list, 4,4, 0);
+		mdmaBeginUnpack(list, vuLight, 2+2*ndir, UNPACK_V4_32, 0);
 
-	for(uint32 i = 0; i < nelem(xtcState.lights); i++) {
-		xtcLight *l = &xtcState.lights[i];
-		if(l->enabled && l->type == XTC_LIGHT_DIRECT) {
-			c = &l->color;
-			mdmaAddF(xtcState.list, c->r, c->g, c->b, *(float*)&lightTypeDirect);
+		c = &xtcState.ambient;
+		mdmaAddF(list, c->r, c->g, c->b, *(float*)&lightTypeAmbient);
+
+		for(uint32 i = 0; i < nelem(xtcState.lights); i++) {
+			xtcLight *l = &xtcState.lights[i];
+			if(l->enabled && l->type == XTC_LIGHT_DIRECT) {
+				c = &l->color;
+				mdmaAddF(list, c->r, c->g, c->b, *(float*)&lightTypeDirect);
 // TODO: this assumes xtcState.world is orthogonal!!!
-			invXformVecO(dir, xtcState.world, (float*)&l->direction);
-			mdmaAddF(xtcState.list, dir[0], dir[1], dir[2], 0.0f);
+				invXformVecO(dir, xtcState.world, (float*)&l->direction);
+				mdmaAddF(list, dir[0], dir[1], dir[2], 0.0f);
+			}
 		}
-	}
 
-	mdmaAddW(xtcState.list, 0, 0, 0, 0);
+		// terminator
+		mdmaAddW(list, 0, 0, 0, 0);
+		mdmaEndUnpack(list);
+	mdmaCloseTag(list);
 }
 
 int
@@ -143,22 +138,38 @@ void
 xtcpRefVertices(uint128 *verts, int32 numVerts, xtcBatchInfo *bi, uint32 stride)
 {
 	mdmaList *l = xtcState.list;
-	uint32 call = VIFmscalf + 0;
+	// only the first batch starts the microprogram, the rest continue it
+	int first = 1;
 
 	int vertCount = bi->batchSize;
 	for(int i = 0; i < bi->numBatches-1; i++) {
-		mdmaRef(l, verts, vertCount*stride, 
-			STCYCL(4,4), UNPACK(V4_32, vertCount*stride, 0x8000 + 0));
-		mdmaCnt(l, 0, VIFitop + vertCount, call);
-		call = VIFmscnt;
+		mdmaRef(l, verts, vertCount*stride);
+			mdmaVifStCycl(l, 4,4, 0);
+			mdmaVifUnpack(l, UNPACK_DBLBUF + 0, vertCount*stride,
+				UNPACK_V4_32, 0);
+		mdmaCnt(l, 0);
+			mdmaVifItop(l, vertCount, 0);
+			if(first) mdmaVifMsCalF(l, 0, 0);
+			else mdmaVifMsCnt(l, 0);
+		mdmaCloseTag(l);
+		first = 0;
 		verts += (vertCount - bi->repeat)*stride;
 	}
 
 	vertCount = bi->lastBatchSize;
-	mdmaRef(l, verts, vertCount*stride, 
-		STCYCL(4,4), UNPACK(V4_32, vertCount*stride, 0x8000 + 0));
-	mdmaCnt(l, 1, VIFitop + vertCount, call);
-	mdmaAddW(l, VIFnop, VIFnop, VIFflush, VIFflush);
+	mdmaRef(l, verts, vertCount*stride);
+		mdmaVifStCycl(l, 4,4, 0);
+		mdmaVifUnpack(l, UNPACK_DBLBUF + 0, vertCount*stride,
+			UNPACK_V4_32, 0);
+	mdmaCnt(l, 1);
+		mdmaVifItop(l, vertCount, 0);
+		if(first) mdmaVifMsCalF(l, 0, 0);
+		else mdmaVifMsCnt(l, 0);
+		mdmaVifNop(l, 0);
+		mdmaVifNop(l, 0);
+		mdmaVifFlush(l, 0);
+		mdmaVifFlush(l, 0);
+	mdmaCloseTag(l);
 }
 
 /*
@@ -189,8 +200,9 @@ xtcpRefVertices(uint128 *verts, int32 numVerts, xtcBatchInfo *bi, uint32 stride)
 static uint32
 unpackSize(uint32 unpack, uint32 num)
 {
+	// CMD is 0110 vvll: vv = components-1, ll = 0:32 1:16 2:8 3:V4-5-5-5-1
 	static uint32 size[] = { 32, 16, 8, 16 };
-	uint32 data = ((unpack>>26 & 3)+1)*size[unpack>>24 & 3]/8 * num;
+	uint32 data = ((unpack>>2 & 3)+1)*size[unpack & 3]/8 * num;
 	return (data+3)&~3;
 }
 
@@ -217,7 +229,10 @@ packVertices(uint32 *data, xtcpVertAttrib *desc, uint128 *verts, uint32 vertCoun
 	uint32 *u32p;
 	int32 *i32p;
 
-	*data++ = desc->unpack | vertCount<<16 | 0x8000 | desc->offset;
+	// USN lives in the address immediate, the format in the CMD byte
+	*data++ = SCE_VIF1_SET_UNPACK(
+		UNPACK_DBLBUF | (desc->unpack & UNPACK_USN) | desc->offset,
+		vertCount & 0xff, desc->unpack & 0xff, 0);
 	verts += desc->offset;
 
 	switch(desc->unpack) {
@@ -266,7 +281,7 @@ packVertices(uint32 *data, xtcpVertAttrib *desc, uint128 *verts, uint32 vertCoun
 			verts += stride;
 		}
 		while((uint32)i8p & 3) *i8p++ = 0;
-		data = (int32*)i8p;
+		data = (uint32*)i8p;
 		break;
 
 	default:
@@ -296,40 +311,42 @@ xtcpBuildList(xtcPrimList *list, xtcBatchInfo *bi)
 	uint32 batchQWC = calcBatchQWC(desc, bi->batchSize);
 	uint32 lastBatchQWC = calcBatchQWC(desc, bi->lastBatchSize);
 	list->size = 16*(batchQWC*(bi->numBatches-1) + lastBatchQWC);
-	uint32 *data = mdmaMalloc(list->size);
+	uint32 *data = (uint32*)mdmaMalloc(list->size);
 	assert(((uint32)data & 0xF) == 0);
 
 	list->list = data;
 	list->pipe = xtcState.pipe;
 	list->primtype = imstate.primtype;
 
-	uint32 call = VIFmscalf + 0;
-	uint32 wait = VIFnop;
+	// hand-built: the qwc of every tag is known up front from calcBatchQWC,
+	// and the vertex data goes straight out through packVertices
+	uint32 call = SCE_VIF1_SET_MSCALF(0, 0);
+	uint32 wait = SCE_VIF1_SET_NOP(0);
 	uint32 vertCount;
 	uint128 *verts = imstate.vertstash;
 	for(int i = 0; i < bi->numBatches; i++) {
 		if(i == bi->numBatches-1) {
 			vertCount = bi->lastBatchSize;
-			wait = VIFflush;
+			wait = SCE_VIF1_SET_FLUSH(0);
 			*data++ = DMAret + lastBatchQWC-1;
 		} else {
 			vertCount = bi->batchSize;
 			*data++ = DMAcnt + batchQWC-1;
 		}
 		*data++ = 0;
-		*data++ = VIFnop;
-		*data++ = STCYCL(1, desc->stride);
+		*data++ = SCE_VIF1_SET_NOP(0);
+		*data++ = SCE_VIF1_SET_STCYCL(1, desc->stride, 0);
 
 		for(int j = 0; j < desc->numAttribs; j++)
 			data = packVertices(data, &desc->attribs[j], verts, vertCount, desc->stride);
 		verts += (vertCount - bi->repeat)*desc->stride;
 
-		*data++ = VIFitop + vertCount;
+		*data++ = SCE_VIF1_SET_ITOP(vertCount, 0);
 		*data++ = call;
 		*data++ = wait;
-		call = VIFmscnt;
+		call = SCE_VIF1_SET_MSCNT(0);
 
-		while((uint32)data & 0xF) *data++ = VIFnop;
+		while((uint32)data & 0xF) *data++ = SCE_VIF1_SET_NOP(0);
 	}
 
 //	dumpshit(list->list, list->size);
@@ -342,7 +359,8 @@ xtcpSetMicrocode(xtcMicrocode *code)
 {
 	if(code == currentCode)
 		return;
-	mdmaCall(xtcState.list, 0, code->code, VIFnop, VIFnop);
+	mdmaCall(xtcState.list, code->code, 0);
+	mdmaCloseTag(xtcState.list);
 	currentCode = code;
 }
 
@@ -351,14 +369,14 @@ void
 xtcpUseTexture(xtcRaster *r)
 {
 	if(xtcState.tme && r) {
-		mdmaGSregs.prmode |= 1<<4;
-		mdmaGSregs.c1.tex0 = xtcState.tex0 | r->tex0;
-		mdmaGSregs.c1.tex0 += r->base;
+		xtcgRegs.prmode |= 1<<4;
+		xtcgRegs.c1.tex0 = xtcState.tex0 | r->tex0;
+		xtcgRegs.c1.tex0 += r->base;
 		if(r->clut)
-			mdmaGSregs.c1.tex0 += (uint64)r->base<<37;
-		mdmaGSregs.c1.tex1 = xtcState.tex1 | r->maxlod<<2;
+			xtcgRegs.c1.tex0 += (uint64)r->base<<37;
+		xtcgRegs.c1.tex1 = xtcState.tex1 | r->maxlod<<2;
 	} else
-		mdmaGSregs.prmode &= ~(1UL<<4);
+		xtcgRegs.prmode &= ~(1UL<<4);
 }
 
 
@@ -397,10 +415,14 @@ xtcPrimListDraw(xtcPrimList *pl)
 
 	xtcpSetMicrocode(pipe->code);
 	xtcpUseTexture(xtcState.tex);
-	void **next = pl->pipe->upload(pl->pipe, pl->primtype);
-	*next = mdmaSkip(xtcState.list, 0);
 
-	mdmaCall(xtcState.list, 0, pl->list, VIFnop, VIFnop);
+	mdmaTag *skiptag = pl->pipe->upload(pl->pipe, pl->primtype);
+	// nothing inline to skip here — the vertices are in the prim list's own
+	// buffer — so the chain continues immediately and it is really a cnt
+	mdmaSetTarget(xtcState.list, skiptag, mdmaHere(xtcState.list));
+
+	mdmaCall(xtcState.list, pl->list, 0);
+	mdmaCloseTag(xtcState.list);
 }
 
 
@@ -419,10 +441,12 @@ xtcBegin(xtcPrimType prim)
 	if(curList == nil) {
 		xtcpSetMicrocode(pipe->code);
 		xtcpUseTexture(xtcState.tex);
-		imstate.nextptr = xtcState.pipe->upload(xtcState.pipe, prim);
+		imstate.skiptag = xtcState.pipe->upload(xtcState.pipe, prim);
 	}
 
-	imstate.vertstash = mdmaSkip(xtcState.list, 0);
+	// the vertices go straight into the chain here; the upload tag will be
+	// made to jump over them once we know how many there were
+	imstate.vertstash = mdmaHere(xtcState.list);
 	imstate.vertptr = imstate.vertstash;
 }
 
@@ -434,22 +458,21 @@ xtcEnd(void)
 	int numVerts = imstate.numVerts;
 
 	if(xtcpGetBatchInfo(imstate.code, &bi, imstate.primtype, numVerts)) {
-		// nothing to draw, discard vertices if they ever existed
+		// nothing to draw: drop the vertices by resuming where they started
 		if(curList == nil)
-			*imstate.nextptr = mdmaSkip(l, 0);
+			mdmaSetTarget(l, imstate.skiptag, mdmaHere(l));
 	} else {
 		if(curList) {
 			xtcpBuildList(curList, &bi);
 		} else {
 			mdmaSkip(l, numVerts*imstate.code->numAttribs);
-			*imstate.nextptr = mdmaSkip(l, 0);
+			mdmaSetTarget(l, imstate.skiptag, mdmaHere(l));
 
 			xtcpRefVertices(imstate.vertstash, numVerts, &bi, imstate.code->numAttribs);
 		}
 	}
 
 	imstate.vertstash = nil;
-	imstate.nextptr = nil;
 }
 
 void

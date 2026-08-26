@@ -16,5 +16,8 @@ enum {
 	vuCodeSwitch	= 0x3FF
 };
 
+// the vertex GIF tag every pipe hands the microcode
+enum { xtcpVertRegs = GIF_ST | GIF_RGBAQ<<4 | GIF_XYZF2<<8 };
+
 extern int primSize[];
 extern int primRepeat[];

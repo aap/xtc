@@ -1,4 +1,3 @@
-#include "mdma.h"
 #include "xtc.h"
 #include "lodepng.h"
 void lodepng_free(void* ptr);
@@ -96,7 +95,7 @@ xtcReadPNG(uint8 *data, uint32 len)
 		return nil;
 	}
 
-	r = mdmaMalloc(sizeof(*r));
+	r = (xtcRaster*)mdmaMalloc(sizeof(*r));
 	memset(r, 0, sizeof(*r));
 	r->width = w;
 	r->height = h;
@@ -106,10 +105,10 @@ xtcReadPNG(uint8 *data, uint32 len)
 		r->depth = state.info_raw.palettesize <= 16 ? 4 : 8;
 		r->psm = r->depth == 4 ? SCE_GS_PSMT4 : SCE_GS_PSMT8;
 		r->clutSize = (1<<r->depth)*4;
-		r->clut = mdmaMalloc(r->clutSize);
+		r->clut = (uint8*)mdmaMalloc(r->clutSize);
 		copy32(r->clut, r->clutSize, state.info_raw.palette, r->clutSize, 1<<r->depth, 1);
 		r->pixelSize = w*h*r->depth/8;
-		r->pixels = mdmaMalloc(r->pixelSize);
+		r->pixels = (uint8*)mdmaMalloc(r->pixelSize);
 		if(state.info_raw.bitdepth == 4)
 			copy4to4_swap(r->pixels, w/2, raw, w/2, w, h);
 		else if(r->depth == 4)
@@ -125,7 +124,7 @@ xtcReadPNG(uint8 *data, uint32 len)
 		r->depth = 24;
 		r->psm = SCE_GS_PSMCT24;
 		r->pixelSize = w*h*3;
-		r->pixels = mdmaMalloc(r->pixelSize);
+		r->pixels = (uint8*)mdmaMalloc(r->pixelSize);
 		memcpy(r->pixels, raw, w*h*3);
 //		copy24to32(r->pixels, w*4, raw, w*3, w, h);
 		break;
@@ -149,7 +148,7 @@ xtcReadPNG(uint8 *data, uint32 len)
 		r->depth = 32;
 		r->psm = SCE_GS_PSMCT32;
 		r->pixelSize = w*h*4;
-		r->pixels = mdmaMalloc(r->pixelSize);
+		r->pixels = (uint8*)mdmaMalloc(r->pixelSize);
 		copy32(r->pixels, w*4, raw, w*4, w, h);
 		break;
 	}
@@ -162,27 +161,35 @@ xtcReadPNG(uint8 *data, uint32 len)
 }
 
 typedef struct PSMdesc PSMdesc;
+// indexed by PSM. Ordered rather than designated: no C99 designated
+// initialisers in C++, and the holes are codes the GS does not define.
 struct PSMdesc {
 	uint32 pageWidth;
 	uint32 pageHeight;
 	uint32 minXferWidth;
 	uint32 hasAlpha;
 } psmDescs[] = {
- [SCE_GS_PSMCT32]	= { 64,  32,  2, 1 },
- [SCE_GS_PSMZ32]	= { 64,  32,  2, 0 },
- [SCE_GS_PSMCT24]	= { 64,  32,  8, 0 },
- [SCE_GS_PSMZ24]	= { 64,  32,  8, 0 },
- [SCE_GS_PSMT8H]	= { 64,  32,  8, 1 },
- [SCE_GS_PSMT4HH]	= { 64,  32,  8, 1 },
- [SCE_GS_PSMT4HL]	= { 64,  32,  8, 1 },
- [SCE_GS_PSMCT16]	= { 64,  64,  4, 1 },
- [SCE_GS_PSMCT16S]	= { 64,  64,  4, 1 },
- [SCE_GS_PSMZ16]	= { 64,  64,  4, 1 },
- [SCE_GS_PSMZ16S]	= { 64,  64,  4, 1 },
- [SCE_GS_PSMT8]		= { 128, 64,  8, 1 },
- [SCE_GS_PSMT4]		= { 128, 128, 8, 1 }
+	{ 64,  32,  2, 1 },			// 0  PSMCT32
+	{ 64,  32,  8, 0 },			// 1  PSMCT24
+	{ 64,  64,  4, 1 },			// 2  PSMCT16
+	{0},{0},{0},{0},{0},{0},{0},		// 3-9
+	{ 64,  64,  4, 1 },			// 10 PSMCT16S
+	{0},{0},{0},{0},{0},{0},{0},{0},	// 11-18
+	{ 128, 64,  8, 1 },			// 19 PSMT8
+	{ 128, 128, 8, 1 },			// 20 PSMT4
+	{0},{0},{0},{0},{0},{0},		// 21-26
+	{ 64,  32,  8, 1 },			// 27 PSMT8H
+	{0},{0},{0},{0},{0},{0},{0},{0},	// 28-35
+	{ 64,  32,  8, 1 },			// 36 PSMT4HL
+	{0},{0},{0},{0},{0},{0},{0},		// 37-43
+	{ 64,  32,  8, 1 },			// 44 PSMT4HH
+	{0},{0},{0},				// 45-47
+	{ 64,  32,  2, 0 },			// 48 PSMZ32
+	{ 64,  32,  8, 0 },			// 49 PSMZ24
+	{ 64,  64,  4, 1 },			// 50 PSMZ16
+	{0},{0},{0},{0},{0},{0},{0},		// 51-57
+	{ 64,  64,  4, 1 }			// 58 PSMZ16S
 };
-
 enum {
 	BLK2PG = 32,
 	WD2BLK = 64,
@@ -200,6 +207,7 @@ logi(uint32 sz)
 void
 xtcrRasterBuildChains(xtcRaster *r)
 {
+	mdmaArena arena;
 	mdmaList l;
 	/*
 	   pkt:
@@ -271,8 +279,9 @@ xtcrRasterBuildChains(xtcRaster *r)
 	// TODO(mipmap)
 	uint32 numPkts = r->clut ? 2 : 1;
 
-	r->pkts = mdmaMalloc(numPkts*8*16);
-	mdmaStart(&l, r->pkts, numPkts*8);
+	r->pkts = (uint128*)mdmaMalloc(numPkts*8*16);
+	mdmaArenaInit(&arena, r->pkts, numPkts*8, 1, MDMA_MEM_CACHED);
+	mdmaListInit(&l, &arena);
 	uint32 w, h, sz;
 
 	// TODO(mipmap): loop
@@ -281,18 +290,25 @@ xtcrRasterBuildChains(xtcRaster *r)
 		h = r->height;
 		sz = (r->pixelSize+15) / 16;
 
-		mdmaCntDirect(&l, 5);
-		mdmaAddGIFtag(&l, 3, 0, 0,0, SCE_GIF_PACKED, 1, 0xe);
-		// TODO(mipmap)
-		mdmaAddAD(&l, SCE_GS_TRXPOS, SCE_GS_SET_TRXPOS(0, 0, 0, 0, 0));
-		// TODO(swizzle)
-		mdmaAddAD(&l, SCE_GS_TRXREG, SCE_GS_SET_TRXREG(w, h));
-		mdmaAddAD(&l, SCE_GS_TRXDIR, SCE_GS_SET_TRXDIR(0));
-		mdmaAddGIFtag(&l, sz, 0, 0,0, SCE_GIF_IMAGE, 0, 0);
+		mdmaCnt(&l, 5);
+			mdmaBeginDirect(&l, 5, 0);
+				mdmaBeginGifTag(&l, 3, 0, 0,0, GIF_PACKED, 1, GIF_AD);
+				// TODO(mipmap)
+				mdmaAddAD(&l, SCE_GS_TRXPOS, SCE_GS_SET_TRXPOS(0, 0, 0, 0, 0));
+				// TODO(swizzle)
+				mdmaAddAD(&l, SCE_GS_TRXREG, SCE_GS_SET_TRXREG(w, h));
+				mdmaAddAD(&l, SCE_GS_TRXDIR, SCE_GS_SET_TRXDIR(0));
+				mdmaEndGifTag(&l);
+				// the image itself arrives through the ref below
+				mdmaGifTag(&l, sz, 0, 0,0, GIF_IMAGE, 0, 0);
+			mdmaEndDirect(&l);
+		mdmaCloseTag(&l);
 
-		mdmaRefDirect(&l, r->pixels, sz);
+		mdmaRef(&l, r->pixels, sz);
+			mdmaVifDirect(&l, sz, 0);
 
-		mdmaRet(&l, 0, 0, 0);
+		mdmaRet(&l, 0);
+		mdmaCloseTag(&l);
 	}
 
 	if(r->clut) {
@@ -307,16 +323,22 @@ xtcrRasterBuildChains(xtcRaster *r)
 		}
 		sz = r->clutSize / 16;
 
-		mdmaCntDirect(&l, 5);
-		mdmaAddGIFtag(&l, 3, 0, 0,0, SCE_GIF_PACKED, 1, 0xe);
-		mdmaAddAD(&l, SCE_GS_TRXPOS, SCE_GS_SET_TRXPOS(0, 0, 0, 0, 0));
-		mdmaAddAD(&l, SCE_GS_TRXREG, SCE_GS_SET_TRXREG(w, h));
-		mdmaAddAD(&l, SCE_GS_TRXDIR, SCE_GS_SET_TRXDIR(0));
-		mdmaAddGIFtag(&l, sz, 0, 0,0, SCE_GIF_IMAGE, 0, 0);
+		mdmaCnt(&l, 5);
+			mdmaBeginDirect(&l, 5, 0);
+				mdmaBeginGifTag(&l, 3, 0, 0,0, GIF_PACKED, 1, GIF_AD);
+				mdmaAddAD(&l, SCE_GS_TRXPOS, SCE_GS_SET_TRXPOS(0, 0, 0, 0, 0));
+				mdmaAddAD(&l, SCE_GS_TRXREG, SCE_GS_SET_TRXREG(w, h));
+				mdmaAddAD(&l, SCE_GS_TRXDIR, SCE_GS_SET_TRXDIR(0));
+				mdmaEndGifTag(&l);
+				mdmaGifTag(&l, sz, 0, 0,0, GIF_IMAGE, 0, 0);
+			mdmaEndDirect(&l);
+		mdmaCloseTag(&l);
 
-		mdmaRefDirect(&l, r->clut, sz);
+		mdmaRef(&l, r->clut, sz);
+			mdmaVifDirect(&l, sz, 0);
 
-		mdmaRet(&l, 0, 0, 0);
+		mdmaRet(&l, 0);
+		mdmaCloseTag(&l);
 	}
 }
 
@@ -329,9 +351,9 @@ xtcrUpload(xtcRaster *r)
 // TODO: we don't even need this yet because
 // we're only doing stupid PATH2 transfers so far
 	static int pingpong;
-	uint32 sz = (gsEnd - gsStart)/2;
+	uint32 sz = (xtcgMemEnd - xtcgMemStart)/2;
 	sz = (sz+31)&~31;
-	uint32 base = gsStart + pingpong*sz;
+	uint32 base = xtcgMemStart + pingpong*sz;
 	pingpong = !pingpong;
 
 
@@ -339,24 +361,34 @@ xtcrUpload(xtcRaster *r)
 
 	uint128 *pkt = r->pkts;
 
-	mdmaCntDirect(l, 2);
-	mdmaAddGIFtag(l, 1, 0, 0,0, SCE_GIF_PACKED, 1, 0xe);
-	mdmaAddAD(l, SCE_GS_BITBLTBUF, SCE_GS_SET_BITBLTBUF(0,0,0,
-		r->base+r->texBuf.bp, r->texBuf.bw, r->psm));
-	mdmaCall(l, 0, pkt, VIFnop, VIFnop);
+	mdmaCall(l, pkt, 2);
+		mdmaBeginDirect(l, 2, 0);
+			mdmaBeginGifTag(l, 1, 0, 0,0, GIF_PACKED, 1, GIF_AD);
+			mdmaAddAD(l, SCE_GS_BITBLTBUF, SCE_GS_SET_BITBLTBUF(0,0,0,
+				r->base+r->texBuf.bp, r->texBuf.bw, r->psm));
+			mdmaEndGifTag(l);
+		mdmaEndDirect(l);
+	mdmaCloseTag(l);
 	pkt += 8;
 
 	if(r->clut) {
-		mdmaCntDirect(l, 2);
-		mdmaAddGIFtag(l, 1, 0, 0,0, SCE_GIF_PACKED, 1, 0xe);
-		mdmaAddAD(l, SCE_GS_BITBLTBUF, SCE_GS_SET_BITBLTBUF(0,0,0,
-			r->base+r->clutBuf.bp, r->clutBuf.bw, SCE_GS_PSMCT32));
-		mdmaCall(l, 0, pkt, VIFnop, VIFnop);
+		mdmaCall(l, pkt, 2);
+			mdmaBeginDirect(l, 2, 0);
+				mdmaBeginGifTag(l, 1, 0, 0,0, GIF_PACKED, 1, GIF_AD);
+				mdmaAddAD(l, SCE_GS_BITBLTBUF, SCE_GS_SET_BITBLTBUF(0,0,0,
+					r->base+r->clutBuf.bp, r->clutBuf.bw, SCE_GS_PSMCT32));
+				mdmaEndGifTag(l);
+			mdmaEndDirect(l);
+		mdmaCloseTag(l);
 	}
 
-	mdmaCntDirect(l, 2);
-	mdmaAddGIFtag(l, 1, 1, 0,0, SCE_GIF_PACKED, 1, 0xe);
-	mdmaAddAD(l, SCE_GS_TEXFLUSH, 0);
+	mdmaCnt(l, 2);
+		mdmaBeginDirect(l, 2, 0);
+			mdmaBeginGifTagAD(l, 1);
+				mdmaAddAD(l, SCE_GS_TEXFLUSH, 0);
+			mdmaEndGifTag(l);
+		mdmaEndDirect(l);
+	mdmaCloseTag(l);
 }
 
 void
@@ -372,27 +404,27 @@ xtcBindTexture(xtcRaster *r)
 void
 xtcTexFunc(xtcTCC tcc, xtcTFX tfx)
 {
-	tcc &= 1;
-	tfx &= 3;
-	xtcState.tex0 = SCE_GS_SET_TEX0(0, 0, 0, 0, 0, tcc, tfx, 0, 0, 0, 0, 0);
+	uint32 c = tcc & 1;
+	uint32 f = tfx & 3;
+	xtcState.tex0 = SCE_GS_SET_TEX0(0, 0, 0, 0, 0, c, f, 0, 0, 0, 0, 0);
 }
 
 void
 xtcTexFilter(xtcFilter min, xtcFilter mag)
 {
-	min &= 7;
-	mag &= 1;
+	uint32 mn = min & 7;
+	uint32 mg = mag & 1;
 	xtcState.tex1 &= ~(0xFUL<<5);
-	xtcState.tex1 |= SCE_GS_SET_TEX1(0, 0, mag, min, 0, 0, 0);
+	xtcState.tex1 |= SCE_GS_SET_TEX1(0, 0, mg, mn, 0, 0, 0);
 }
 
 void
 xtcTexWrap(xtcWrap u, xtcWrap v)
 {
 	// TODO: support REGION_ modes?
-	u &= 3;
-	v &= 3;
-	mdmaGSregs.c1.clamp = SCE_GS_SET_CLAMP(u, v, 0, 0, 0, 0);
+	uint32 uu = u & 3;
+	uint32 vv = v & 3;
+	xtcgRegs.c1.clamp = SCE_GS_SET_CLAMP(uu, vv, 0, 0, 0, 0);
 }
 
 void

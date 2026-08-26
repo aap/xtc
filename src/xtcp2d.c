@@ -1,37 +1,47 @@
-#include "mdma.h"
 #include "xtc.h"
 #include "xtcpipe.h"
 
 #include <libgraph.h>
 
-static void**
+static mdmaTag *
 upload(xtcPipeline *pipe, xtcPrimType primtype)
 {
-	void **nextptr;
+	mdmaTag *tag;
 	mdmaList *l = xtcState.list;
-
-	mdmaFlushGsRegs(xtcState.list);
-
-	nextptr = mdmaNext(l, nil, 8, VIFflush, VIFflush);
-
-	// some uploads and double buffer
-	mdmaAddW(l, VIFbase + 0, VIFoffset + pipe->code->offset,
-		STCYCL(4,4), UNPACK(V4_32, 2, vuXyzwScale));
-	mdmaAdd(l, xtcState.xyzwScale);
-	mdmaAdd(l, xtcState.xyzwOffset);
-
-	mdmaAddW(l, VIFnop, VIFnop, STCYCL(4,4), UNPACK(V4_32, 2, vuGifTag));
-	mdmaAddGIFtag(l, 0, 1, 1,primtype, SCE_GIF_PACKED, 3, 0x412);
-	if(mdmaGSregs.prmode & 1<<4)
-		mdmaAdd(l, xtcState.colorScaleTex);
-	else
-		mdmaAdd(l, xtcState.colorScale);
-
-	mdmaAddW(l, VIFnop, VIFnop, STCYCL(4,4), UNPACK(V4_32, 1, vuCodeSwitch));
 	xtcMicrocodeSwitch *swtch = &pipe->code->swtch[0];
-	mdmaAddW(l, swtch->process>>3, 0, 0, 0);
 
-	return nextptr;
+	xtcgFlushRegs(l);
+
+	tag = mdmaNext(l, nil, 8);
+		mdmaVifFlush(l, 0);
+		mdmaVifFlush(l, 0);
+
+		// some uploads and double buffer
+		mdmaVifBase(l, 0, 0);
+		mdmaVifOffset(l, pipe->code->offset, 0);
+		mdmaVifStCycl(l, 4,4, 0);
+		mdmaBeginUnpack(l, vuXyzwScale, 2, UNPACK_V4_32, 0);
+			mdmaAdd(l, xtcState.xyzwScale);
+			mdmaAdd(l, xtcState.xyzwOffset);
+		mdmaEndUnpack(l);
+
+		mdmaVifNop(l, 0);
+		mdmaVifNop(l, 0);
+		mdmaVifStCycl(l, 4,4, 0);
+		mdmaBeginUnpack(l, vuGifTag, 2, UNPACK_V4_32, 0);
+			mdmaGifTag(l, 0, 1, 1,primtype, GIF_PACKED, 3, xtcpVertRegs);
+			mdmaAdd(l, xtcState.colorScale[(xtcgRegs.prmode>>4)&1]);
+		mdmaEndUnpack(l);
+
+		mdmaVifNop(l, 0);
+		mdmaVifNop(l, 0);
+		mdmaVifStCycl(l, 4,4, 0);
+		mdmaBeginUnpack(l, vuCodeSwitch, 1, UNPACK_V4_32, 0);
+			mdmaAddW(l, swtch->process>>3, 0, 0, 0);
+		mdmaEndUnpack(l);
+	mdmaCloseTag(l);
+
+	return tag;
 }
 
 extern xtcMicrocode xtcCode2D;

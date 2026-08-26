@@ -1,4 +1,3 @@
-#include "mdma.h"
 #include "xtc.h"
 #include "m.h"
 #include "mem.h"
@@ -19,9 +18,10 @@ const uint32 xoffset = 2048-SCREEN_WIDTH/2;
 const uint32 yoffset = 2048-SCREEN_HEIGHT/2;
 
 
-void dumpDma(uint *packet, int data);
+void dumpDma(unsigned int *packet, int data);
 
-mdmaBuffers buffers;
+xtcgBuffers buffers;
+mdmaArena vifArena;
 mdmaList viflist;
 uint128 vifBuffer[100*1024];
 
@@ -34,13 +34,19 @@ drawThing(void)
 	static int vy = 1;
 	static int sz = 32;
 
-	mdmaCntDirect(&viflist, 4);
-	mdmaAddGIFtag(&viflist, 3, 1, 1,SCE_GS_PRIM_SPRITE, SCE_GIF_PACKED, 1, 0xe);
-	mdmaAddAD(&viflist, SCE_GS_RGBAQ, SCE_GS_SET_RGBAQ(255, 255, 255, 255, 255));
-	mdmaAddAD(&viflist, SCE_GS_XYZ2,
-		SCE_GS_SET_XYZ((xoffset+x)<<4, (yoffset+y)<<4, 0));
-	mdmaAddAD(&viflist, SCE_GS_XYZ2,
-		SCE_GS_SET_XYZ((xoffset+x+sz)<<4, (yoffset+y+sz)<<4, 0));
+	mdmaCnt(&viflist, 4);
+		mdmaBeginDirect(&viflist, 4, 0);
+			mdmaBeginGifTag(&viflist, 3, 1, 1,SCE_GS_PRIM_SPRITE,
+				GIF_PACKED, 1, GIF_AD);
+			mdmaAddAD(&viflist, SCE_GS_RGBAQ,
+				SCE_GS_SET_RGBAQ(255, 255, 255, 255, 255));
+			mdmaAddAD(&viflist, SCE_GS_XYZ2,
+				SCE_GS_SET_XYZ((xoffset+x)<<4, (yoffset+y)<<4, 0));
+			mdmaAddAD(&viflist, SCE_GS_XYZ2,
+				SCE_GS_SET_XYZ((xoffset+x+sz)<<4, (yoffset+y+sz)<<4, 0));
+			mdmaEndGifTag(&viflist);
+		mdmaEndDirect(&viflist);
+	mdmaCloseTag(&viflist);
 
 	x += vx;
 	y += vy;
@@ -536,8 +542,8 @@ main()
 //	memInitManaged();
 
 	mdmaInit();
-	mdmaResetGraph(SCE_GS_INTERLACE, VIDEOMODE, SCE_GS_FIELD);
-	mdmaInitBuffers(&buffers, SCREEN_WIDTH, SCREEN_HEIGHT,
+	xtcgResetGraph(SCE_GS_INTERLACE, VIDEOMODE, SCE_GS_FIELD);
+	xtcgInitBuffers(&buffers, SCREEN_WIDTH, SCREEN_HEIGHT,
 		SCE_GS_PSMCT32, SCE_GS_PSMZ24);
 
 
@@ -547,7 +553,8 @@ raster8  = xtcReadPNG(SIZED(tex8));
 raster4  = xtcReadPNG(SIZED(tex4));
 
 
-	mdmaStart(&viflist, vifBuffer, nelem(vifBuffer));
+	mdmaArenaInit(&vifArena, vifBuffer, nelem(vifBuffer), 1, MDMA_MEM_CACHED);
+	mdmaListInit(&viflist, &vifArena);
 	xtcSetList(&viflist);
 	xtcInit(SCREEN_WIDTH, SCREEN_HEIGHT, 24);
 
@@ -568,8 +575,10 @@ raster4  = xtcReadPNG(SIZED(tex4));
 
 	xtcClearDepth(0);
 	xtcClearColor(64, 64, 64, 255);
-	mdmaFinish(&viflist);
-	mdmaSendSynch(mdmaVIF, &viflist);
+	mdmaEnd(&viflist, 0);
+	mdmaCloseTag(&viflist);
+	mdmaKick(mdmaVIF1, &viflist);
+	sceGsSyncPath(0, 0);
 
 	xtcSetAmbient(32, 32, 32);
 	xtcLight l;
@@ -582,7 +591,7 @@ raster4  = xtcReadPNG(SIZED(tex4));
 
 	int f = 0;
 	for(;;) {
-		mdmaStart(&viflist, vifBuffer, nelem(vifBuffer));
+		mdmaListReset(&viflist);
 		xtcSetDraw(&buffers.draw[f]);
 		xtcClear(XTC_COLORBUF | XTC_DEPTHBUF);
 //		drawThing();
@@ -598,11 +607,11 @@ raster4  = xtcReadPNG(SIZED(tex4));
 		xtcTexFilter(XTC_LINEAR, XTC_LINEAR);
 		xtcTexFunc(XTC_RGB, XTC_MODULATE);
 //		moveInCircle(10.0f);
-		drawTeapot();
-//		drawSphere();
+//		drawTeapot();
+		drawSphere();
 
 		xtcEnable(XTC_TEXTURE);
-		xtcBindTexture(raster24);
+		xtcBindTexture(raster8);
 //		drawCube();
 
 
@@ -619,12 +628,14 @@ raster4  = xtcReadPNG(SIZED(tex4));
 		xtcBindTexture(nil);
 
 
-		mdmaFinish(&viflist);
-//dumpDma((uint*)viflist.p, 1);
-		mdmaSendSynch(mdmaVIF, &viflist);
+		mdmaEnd(&viflist, 0);
+		mdmaCloseTag(&viflist);
+//dumpDma((unsigned int*)viflist.p, 1);
+		mdmaKick(mdmaVIF1, &viflist);
+		sceGsSyncPath(0, 0);
 
-		mdmaWaitVSynch();
-		mdmaSetDisp(&buffers.disp[f]);
+		xtcgWaitVSynch();
+		xtcgSetDisp(&buffers.disp[f]);
 		f ^= 1;
 	}
 

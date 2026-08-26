@@ -4,6 +4,10 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
+
+static void check_allocations(void);
+static void checkblock(uint8 *p);
 
 STRUCT(LLLink) {
 	LLLink *next;
@@ -73,7 +77,9 @@ memInitManaged(void)
 	totalMemoryAllocated = 0;
 
 	mdmaMalloc = malloc_managed;
-	mdmaRealloc = realloc_managed;
+	// nothing uses mdmaRealloc, so the new mdma doesn't have the hook.
+	// realloc_managed is still here for when it comes back.
+//	mdmaRealloc = realloc_managed;
 	mdmaFree = free_managed;
 }
 
@@ -111,6 +117,7 @@ void*
 realloc_managed(void *p, size_t sz)
 {
 	void *origPtr;
+	uint8 *q;
 	MemoryBlock *mem;
 	uint32 offset;
 
@@ -129,17 +136,17 @@ realloc_managed(void *p, size_t sz)
 		listAdd(&allocations, &mem->inAllocList);
 		return nil;
 	}
-	p = (uint8*)origPtr + offset;
-	memset(p-16, 0xCD, 16);
-	memset(p+sz, 0xCD, 16);
-	mem = PTR2MEMBLOCK(p);
+	q = (uint8*)origPtr + offset;
+	memset(q-16, 0xCD, 16);
+	memset(q+sz, 0xCD, 16);
+	mem = PTR2MEMBLOCK(q);
 	totalMemoryAllocated -= mem->sz;
 	mem->sz = sz;
 	mem->origPtr = origPtr;
 	listAdd(&allocations, &mem->inAllocList);
 	totalMemoryAllocated += mem->sz;
 
-	return p;
+	return q;
 }
 
 static void
@@ -169,7 +176,7 @@ free_managed(void *p)
 	MemoryBlock *mem;
 	if(p == nil)
 		return;
-	checkblock(p);
+	checkblock((uint8*)p);
 	mem = PTR2MEMBLOCK(p);
 	linkRemove(&mem->inAllocList);
 	totalMemoryAllocated -= mem->sz;
