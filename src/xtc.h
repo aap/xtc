@@ -266,14 +266,12 @@ STRUCT(xtcpVertAttrib) {
 	uint32 unpack;
 };
 
-// TODO: this, instead of vertFmt, is what the microcode should define
 STRUCT(xtcpBatchDesc) {
 	uint32 stride;
 	int numAttribs;
 	xtcpVertAttrib attribs[10];
 };
 
-void xtcpMakeBatchDesc(uint32 vertFmt, xtcpBatchDesc *desc);
 
 
 
@@ -317,7 +315,7 @@ STRUCT(xtcMicrocode) {
 	uint32 vertCount;
 	uint32 numAttribs;
 	uint32 offset;
-	uint32 vertFmt;	// TODO: replace by xtcpBatchDesc
+	xtcpBatchDesc *desc;
 	uint32 numVerts[XTC_NUM_PRIMTYPES];
 	// pipeline code will know what to do with this (for now)
 	xtcMicrocodeSwitch swtch[0];
@@ -345,7 +343,6 @@ STRUCT(xtcImState) {
 	int32 normal[4];
 
 	xtcMicrocode *code;
-	xtcpBatchDesc *desc;
 	uint128 *vertstash;
 	void *vertptr;
 	int numVerts;
@@ -356,8 +353,6 @@ STRUCT(xtcImState) {
 };
 extern xtcImState imstate;
 
-void xtcpKickVertex(uint32 vertFmt);
-
 
 
 STRUCT(xtcPipeline) {
@@ -365,8 +360,6 @@ STRUCT(xtcPipeline) {
 	// then targets the tag past them
 	mdmaTag *(*upload)(xtcPipeline *pipe, xtcPrimType primtype);
 	xtcMicrocode *code;
-
-	xtcpBatchDesc desc;
 };
 
 extern xtcPipeline *twodPipeline;

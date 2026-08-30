@@ -307,7 +307,7 @@ dumpshit(uint32 *data, uint32 size)
 void
 xtcpBuildList(xtcPrimList *list, xtcBatchInfo *bi)
 {
-	xtcpBatchDesc *desc = imstate.desc;
+	xtcpBatchDesc *desc = imstate.code->desc;
 	uint32 batchQWC = calcBatchQWC(desc, bi->batchSize);
 	uint32 lastBatchQWC = calcBatchQWC(desc, bi->lastBatchSize);
 	list->size = 16*(batchQWC*(bi->numBatches-1) + lastBatchQWC);
@@ -410,8 +410,6 @@ void
 xtcPrimListDraw(xtcPrimList *pl)
 {
 	xtcPipeline *pipe = pl->pipe;
-	if(pipe->desc.numAttribs == 0)
-		xtcpMakeBatchDesc(pipe->code->vertFmt, &pipe->desc);
 
 	xtcpSetMicrocode(pipe->code);
 	xtcpUseTexture(xtcState.tex);
@@ -430,10 +428,7 @@ void
 xtcBegin(xtcPrimType prim)
 {
 	xtcPipeline *pipe = xtcState.pipe;
-	if(pipe->desc.numAttribs == 0)
-		xtcpMakeBatchDesc(pipe->code->vertFmt, &pipe->desc);
 	imstate.code = pipe->code;
-	imstate.desc = &pipe->desc;
 	imstate.primtype = prim;
 	imstate.restartstrip = 0;
 	imstate.numVerts = 0;
@@ -475,45 +470,23 @@ xtcEnd(void)
 	imstate.vertstash = nil;
 }
 
+// TODO: make this pipeline driven?
 void
-xtcpKickVertex(uint32 vertFmt)
+xtcpKickVertex(xtcMicrocode *code)
 {
-	if(vertFmt & (POS_3F | POS_4F)) {
-		float *v = (float*)imstate.vertptr;
-		v[0] = imstate.xyzw[0];
-		v[1] = imstate.xyzw[1];
-		v[2] = imstate.xyzw[2];
-		v[3] = imstate.xyzw[3];
-		imstate.vertptr = v+4;
+	xtcpBatchDesc *d = code->desc;
+	uint8 *v = (uint8*)imstate.vertptr;
+	// TODO: this really isn't ideal, but ok for now
+	for(int i = 0; i < d->numAttribs; i++) {
+		xtcpVertAttrib *a = &d->attribs[i];
+		switch(a->usage) {
+		case XTCP_POSITION: memcpy(v+a->offset*16, imstate.xyzw, 16); break;
+		case XTCP_TEXCOORD: memcpy(v+a->offset*16, imstate.stq, 16); break;
+		case XTCP_COLOR:    memcpy(v+a->offset*16, imstate.rgba, 16); break;
+		case XTCP_NORMAL:   memcpy(v+a->offset*16, imstate.normal, 16); break;
+		}
 	}
-
-	if(vertFmt & TEX_2F) {
-		float *v = (float*)imstate.vertptr;
-		v[0] = imstate.stq[0];
-		v[1] = imstate.stq[1];
-		v[2] = imstate.stq[2];
-		v[3] = imstate.stq[3];
-		imstate.vertptr = v+4;
-	}
-
-	if(vertFmt & COL_4B) {
-		uint32 *v = (uint32*)imstate.vertptr;
-		v[0] = imstate.rgba[0];
-		v[1] = imstate.rgba[1];
-		v[2] = imstate.rgba[2];
-		v[3] = imstate.rgba[3];
-		imstate.vertptr = v+4;
-	}
-
-	if(vertFmt & NORMAL_3B) {
-		int32 *v = (int32*)imstate.vertptr;
-		v[0] = imstate.normal[0];
-		v[1] = imstate.normal[1];
-		v[2] = imstate.normal[2];
-		v[3] = imstate.normal[3];
-		imstate.vertptr = v+4;
-	}
-
+	imstate.vertptr = v + d->stride*16;
 	imstate.numVerts++;
 }
 
@@ -525,9 +498,9 @@ xtcVertex(float x, float y, float z)
 	imstate.xyzw[2] = z;
 	imstate.xyzw[3] = 0.0f;
 
-	xtcpKickVertex(imstate.code->vertFmt);
+	xtcpKickVertex(imstate.code);
 	if(imstate.restartstrip) {
-		xtcpKickVertex(imstate.code->vertFmt);
+		xtcpKickVertex(imstate.code);
 		imstate.restartstrip = 0;
 	}
 }
@@ -541,7 +514,7 @@ xtcRestartStrip(void)
 // not possible right now, with ADC it will be
 		break;
 	case XTC_TRISTRIP:
-		xtcpKickVertex(imstate.code->vertFmt);
+		xtcpKickVertex(imstate.code);
 		imstate.restartstrip = 1;
 		break;
 	}
@@ -568,82 +541,8 @@ xtcColor(uint32 r, uint32 g, uint32 b, uint32 a)
 void
 xtcNormal(float x, float y, float z)
 {
-	imstate.normal[0] = x*127.0f;
-	imstate.normal[1] = y*127.0f;
-	imstate.normal[2] = z*127.0f;
-	imstate.normal[3] = 0.0f;
-}
-
-
-
-void
-xtcpMakeBatchDesc(uint32 vertFmt, xtcpBatchDesc *desc)
-{
-	uint32 offset;
-	xtcpVertAttrib *a;
-
-	memset(desc, 0, sizeof(*desc));
-	offset = 0;
-
-	a = &desc->attribs[desc->numAttribs];
-	if(vertFmt & POS_3F) {
-		a->usage = XTCP_POSITION;
-		a->offset = offset++;
-// TODO: might want to mask for ADC here
-		a->unpack = UNPACK_V3_32;
-		desc->numAttribs++;
-	} else if(vertFmt & POS_4F) {
-		a->usage = XTCP_POSITION;
-		a->offset = offset++;
-		a->unpack = UNPACK_V4_32;
-		desc->numAttribs++;
-	}
-
-	a = &desc->attribs[desc->numAttribs];
-	if(vertFmt & TEX_2F) {
-		a->usage = XTCP_TEXCOORD;
-		a->offset = offset++;
-		a->unpack = UNPACK_V2_32;
-		desc->numAttribs++;
-	}
-
-	a = &desc->attribs[desc->numAttribs];
-	if(vertFmt & COL_4B) {
-		a->usage = XTCP_COLOR;
-		a->offset = offset++;
-		a->unpack = UNPACK_V4_8 | UNPACK_USN;
-		desc->numAttribs++;
-	}
-
-	a = &desc->attribs[desc->numAttribs];
-	if(vertFmt & NORMAL_3B) {
-		a->usage = XTCP_NORMAL;
-		a->offset = offset++;
-		a->unpack = UNPACK_V3_8;
-		desc->numAttribs++;
-	}
-
-	a = &desc->attribs[desc->numAttribs];
-	if(vertFmt & SKINDATA_4F) {
-		a->usage = XTCP_SKINDATA;
-		a->offset = offset++;
-		a->unpack = UNPACK_V4_32;
-		desc->numAttribs++;
-	}
-
-	// TODO: might have some non-uploaded data in the stride
-	// probably get that from microcode numInAttribs?
-	desc->stride = offset;
-
-/*
-printf("stride: %d\n", desc->stride);
-for(int i = 0; i < desc->numAttribs; i++) {
-	printf("%d: %X %X %X\n", i,
-		desc->attribs[i].usage,
-		desc->attribs[i].offset,
-		desc->attribs[i].unpack
-	);
-}
-*/
-
+	imstate.normal[0] = (int)(x*127.0f);
+	imstate.normal[1] = (int)(y*127.0f);
+	imstate.normal[2] = (int)(z*127.0f);
+	imstate.normal[3] = 0;
 }

@@ -130,7 +130,7 @@ xtcCodeDefault:
 .word vertCount
 .word numInAttribs
 .word offset
-.word 0x00201014		; POS_4F | TEX_2F | COL_4B | NORMAL_3B
+.word inputDesc
 ; numVerts - indexed by prim type
 .word vertCount & ~3		; point and non-ref strips
 .word ((vertCount/2) & ~3)*2	; line list
@@ -141,3 +141,10 @@ xtcCodeDefault:
 .word Process, outBuf1, outBuf2, 0
 .word TLClip, outBuf1, clipOutBuf2, 0
 .word TSClip, outBuf1, clipOutBuf2, 0
+
+inputDesc:
+.word 4, 4
+.word 1, 0, 0x6c	; XTCP_POSITION, 0, UNPACK_V4_32
+.word 2, 1, 0x64	; XTCP_TEXCOORD, 1, UNPACK_V2_32
+.word 3, 2, 0x406e	; XTCP_COLOR,    2, UNPACK_V4_8 | UNPACK_USN
+.word 4, 3, 0x6a	; XTCP_NORMAL,   3, UNPACK_V3_8

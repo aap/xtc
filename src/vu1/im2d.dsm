@@ -125,7 +125,7 @@ xtcCode2D:
 .word vertCount
 .word numInAttribs
 .word offset
-.word 0x00001014		; POS_4F | TEX_2F | COL_4B
+.word inputDesc
 ; numVerts - indexed by prim type
 .word vertCount & ~3		; point and non-ref strips
 .word ((vertCount/2) & ~3)*2	; line list
@@ -135,3 +135,9 @@ xtcCode2D:
 ; code switch
 .word NoFog, 0, 0, 0
 .word Fog, 0, 0, 0
+
+inputDesc:
+.word 3, 3
+.word 1, 0, 0x6c	; XTCP_POSITION, 0, UNPACK_V4_32
+.word 2, 1, 0x64	; XTCP_TEXCOORD, 1, UNPACK_V2_32
+.word 3, 2, 0x406e	; XTCP_COLOR,    2, UNPACK_V4_8 | UNPACK_USN

@@ -101,8 +101,11 @@ FREESCE_GCC ?= /usr/local/freesce/ee/gcc
 
 FREESCE_LIB := $(FREESCE)/ee/lib
 FREESCE_INC := -I$(FREESCE)/ee/include
+# libopad is the SDK 2.0 libpad, the last one that accepts the boot
+# ROM's padman (XPADMAN is padman 3.6; 2.4 onwards demands 4.x, i.e.
+# padman.irx).  JOY_ROMPAD in FSFLAGS goes with it and with nothing else.
 FREESCE_LIBS = $(FREESCE_LIB)/libgraph.a $(FREESCE_LIB)/libdma.a \
-	$(FREESCE_LIB)/libpc.a $(FREESCE_LIB)/libpad.a \
+	$(FREESCE_LIB)/libpc.a $(FREESCE_LIB)/libopad.a \
 	$(FREESCE_LIB)/libcdvd.a $(FREESCE_LIB)/libkernl.a
 
 # ---- freesce, end to end ---------------------------------------------------
@@ -118,7 +121,7 @@ FREESCE_LIBS = $(FREESCE_LIB)/libgraph.a $(FREESCE_LIB)/libdma.a \
 FSCC := $(FREESCE_GCC)/bin/ee-gcc
 FSCXX := $(FREESCE_GCC)/bin/ee-g++
 FSGCCLIB := $(FREESCE_GCC)/lib/gcc-lib/ee/2.9-ee-991111-01
-FSFLAGS := -O2 -fno-common -fno-exceptions -DLODEPNG_NO_COMPILE_CPP
+FSFLAGS := -O2 -fno-common -fno-exceptions -DLODEPNG_NO_COMPILE_CPP -DJOY_ROMPAD
 FSINC := $(addprefix -I,$(SRCDIRS)) -I$(MDMADIR) $(FREESCE_INC)
 
 FSOBJDIR := build/freesce
