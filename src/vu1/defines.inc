@@ -11,6 +11,31 @@
 .equ surfaceProps,	0x3fc
 .equ codeSwitch,	0x3ff
 
+.equ UNPACK_V1_32,	0x60
+.equ UNPACK_V1_16,	0x61
+.equ UNPACK_V1_8,	0x62
+.equ UNPACK_V2_32,	0x64
+.equ UNPACK_V2_16,	0x65
+.equ UNPACK_V2_8,	0x66
+.equ UNPACK_V3_32,	0x68
+.equ UNPACK_V3_16,	0x69
+.equ UNPACK_V3_8,	0x6a
+.equ UNPACK_V4_32,	0x6c
+.equ UNPACK_V4_16,	0x6d
+.equ UNPACK_V4_8,	0x6e
+.equ UNPACK_V4_5,	0x6f
+
+.equ UNPACK_MSK,	0x0010
+.equ UNPACK_USN,	0x4000
+
+;; NB: keep in synch with xtc.h
+.equ XTCP_POSITION,	1
+.equ XTCP_TEXCOORD,	2
+.equ XTCP_COLOR,	3
+.equ XTCP_NORMAL,	4
+.equ XTCP_SKINDATA,	5
+
+
 ;; FCAND masks -- if register is 0, the whole poly is out
 .equ posXn, (0x041041)
 .equ negXn, (0x082082)

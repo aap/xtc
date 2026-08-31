@@ -5,15 +5,15 @@
 #define nelem(arr) (sizeof(arr)/sizeof(arr[0]))
 #endif
 
-typedef long long int64;
-typedef unsigned long long uint64;
-typedef int int32;
-typedef unsigned int uint32;
-typedef short int16;
-typedef unsigned short uint16;
-typedef signed char int8;
-typedef unsigned char uint8;
-typedef uint32 uintptr;
+typedef  int64_t  int64;
+typedef uint64_t uint64;
+typedef  int32_t  int32;
+typedef uint32_t uint32;
+typedef  int16_t  int16;
+typedef uint16_t uint16;
+typedef  int8_t   int8;
+typedef uint8_t  uint8;
+typedef uintptr_t uintptr;
 typedef uint128_t uint128;
 
 /* C++ has no forward-declared enums (not in this vintage anyway), and does
@@ -200,54 +200,7 @@ ENUM(xtcPrimType) {
 	XTC_NUM_PRIMTYPES
 };
 
-/*
-	position
-		3 float
-		3 i16
-	   ADC/fog(?):
-		4 float
-		4 i16
-	color		[n]?
-		4 u8
-		1 u16
-	texcoord	[n]?
-		2 float
-		2 i16
-		4 float
-		4 i16
-	normal
-		3 float
-		3 u8	-> 4 u8 when alignment needed
-	weights&indices
-		4 floats+offset (like RW)
-*/
-
-/* TODO: this is awfully temporary, just a sketch
- * maybe we should get rid of it altogether in favour of batch descs.
- * there is also a conceptual difference of what we put in the VIF packet
- * and what microcode expects to me in memory */
-enum {
-	POS_3F		= 0x00000001,
-	POS_3S		= 0x00000002,
-	POS_4F		= 0x00000004,
-	POS_4S		= 0x00000008,
-
-	TEX_2F		= 0x00000010,
-	TEX_2S		= 0x00000020,
-	TEX_4F		= 0x00000040,
-	TEX_4S		= 0x00000080,
-
-	COL_4B		= 0x00001000,
-	COL_5551	= 0x00002000,	// not with ref
-
-	NORMAL_3F	= 0x00100000,
-	NORMAL_3B	= 0x00200000,	// not with ref, -> pad to 4b?
-
-	SKINDATA_4F	= 0x01000000
-};
-
-
-
+// NB: keep in synch with vu1/defines.inc
 enum xtcpUsage {
 	XTCP_UNUSED,
 	XTCP_POSITION,

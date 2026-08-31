@@ -102,9 +102,6 @@ still requires a lot of work on the details.
 	* store/load resources from files
 	* improve display lists
 
-* Geometry
-	* figure out vertex format or perhaps better: get rid of it
-
 * Textures
 	* PATH3 texture uploads
 	* GS texture cache
@@ -125,7 +122,7 @@ still requires a lot of work on the details.
 	* don't re-upload matrix and lights all the time
 
 * Toolchain
-	* currently uses sony SDK, would be nice to support open source ps2sdk
+	* currently uses (free!) sony SDK, would be nice to support open source ps2sdk
 		* inline assembly might be problematic
 
 * Examples
