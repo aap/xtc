@@ -1,5 +1,6 @@
 
 enum {
+	vuBoneMatrices	= 0x2D0,	// skin pipe: 64 bones, 4 qwords each
 	vuLight		= 0x3D0,
 	vuMatrix	= 0x3F0,
 	vuXyzwScale	= 0x3F4,

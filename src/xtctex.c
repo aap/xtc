@@ -1,4 +1,4 @@
-#include "xtc.h"
+#include "xtci.h"
 #include "lodepng.h"
 void lodepng_free(void* ptr);
 

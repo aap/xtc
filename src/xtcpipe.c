@@ -1,6 +1,5 @@
-#include "xtc.h"
+#include "xtci.h"
 #include "xtcpipe.h"
-#include "m.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,17 +18,16 @@ int lightTypeDirect = 3;
 void
 xtcpCombineMatrix(void)
 {
-	float t[16];
-	matmul(t, xtcState.view, xtcState.world);
-	matmul((float*)&xtcState.matrix0, xtcState.proj, t);
+	Mat4 t = m4mul(xtcState.view, xtcState.world);
+	*(Mat4*)&xtcState.matrix0 = m4mul(xtcState.proj, t);
 }
 
 void
 xtcpUploadLights(void)
 {
 	int ndir;
-	xtcRGBA *c;
-	float dir[3];
+	Vec4 *c;
+	Vec3 dir;
 
 	ndir = 0;
 	for(uint32 i = 0; i < nelem(xtcState.lights); i++) {
@@ -46,16 +44,16 @@ xtcpUploadLights(void)
 		mdmaBeginUnpack(list, vuLight, 2+2*ndir, UNPACK_V4_32, 0);
 
 		c = &xtcState.ambient;
-		mdmaAddF(list, c->r, c->g, c->b, *(float*)&lightTypeAmbient);
+		mdmaAddF(list, 255.0f*c->x, 255.0f*c->y, 255.0f*c->z, *(float*)&lightTypeAmbient);
 
 		for(uint32 i = 0; i < nelem(xtcState.lights); i++) {
 			xtcLight *l = &xtcState.lights[i];
 			if(l->enabled && l->type == XTC_LIGHT_DIRECT) {
 				c = &l->color;
-				mdmaAddF(list, c->r, c->g, c->b, *(float*)&lightTypeDirect);
+				mdmaAddF(list, 255.0f*c->x, 255.0f*c->y, 255.0f*c->z, *(float*)&lightTypeDirect);
 // TODO: this assumes xtcState.world is orthogonal!!!
-				invXformVecO(dir, xtcState.world, (float*)&l->direction);
-				mdmaAddF(list, dir[0], dir[1], dir[2], 0.0f);
+				dir = m4invXformVecO(&xtcState.world, l->direction);
+				mdmaAddF(list, dir.x, dir.y, dir.z, 0.0f);
 			}
 		}
 
@@ -476,6 +474,7 @@ xtcpKickVertex(xtcMicrocode *code)
 {
 	xtcpBatchDesc *d = code->desc;
 	uint8 *v = (uint8*)imstate.vertptr;
+	uint8 *sk;
 	// TODO: this really isn't ideal, but ok for now
 	for(int i = 0; i < d->numAttribs; i++) {
 		xtcpVertAttrib *a = &d->attribs[i];
@@ -484,6 +483,15 @@ xtcpKickVertex(xtcMicrocode *code)
 		case XTCP_TEXCOORD: memcpy(v+a->offset*16, imstate.stq, 16); break;
 		case XTCP_COLOR:    memcpy(v+a->offset*16, imstate.rgba, 16); break;
 		case XTCP_NORMAL:   memcpy(v+a->offset*16, imstate.normal, 16); break;
+		case XTCP_SKINDATA:
+			memcpy(v+a->offset*16, imstate.weights, 16);
+			sk = (uint8*)(v+a->offset*16);
+			// use lower 10 bits for matrix offset
+			sk[0+ 0] = imstate.indices[0]<<2; sk[1+ 0] &= ~3;
+			sk[0+ 4] = imstate.indices[1]<<2; sk[1+ 4] &= ~3;
+			sk[0+ 8] = imstate.indices[2]<<2; sk[1+ 8] &= ~3;
+			sk[0+12] = imstate.indices[3]<<2; sk[1+12] &= ~3;
+			break;
 		}
 	}
 	imstate.vertptr = v + d->stride*16;
@@ -521,12 +529,18 @@ xtcRestartStrip(void)
 }
 
 void
-xtcTexCoord(float s, float t, float q)
+xtcTexCoord3(float s, float t, float q)
 {
 	imstate.stq[0] = s;
 	imstate.stq[1] = t;
 	imstate.stq[2] = q;
 	imstate.stq[3] = 0.0f;
+}
+
+void
+xtcTexCoord2(float s, float t)
+{
+	xtcTexCoord3(s, t, 1.0f);
 }
 
 void
@@ -545,4 +559,23 @@ xtcNormal(float x, float y, float z)
 	imstate.normal[1] = (int)(y*127.0f);
 	imstate.normal[2] = (int)(z*127.0f);
 	imstate.normal[3] = 0;
+}
+
+
+void
+xtcIndices(uint8 i0, uint8 i1, uint8 i2, uint8 i3)
+{
+	imstate.indices[0] = i0;
+	imstate.indices[1] = i1;
+	imstate.indices[2] = i2;
+	imstate.indices[3] = i3;
+}
+
+void
+xtcWeights(float w0, float w1, float w2, float w3)
+{
+	imstate.weights[0] = w0;
+	imstate.weights[1] = w1;
+	imstate.weights[2] = w2;
+	imstate.weights[3] = w3;
 }

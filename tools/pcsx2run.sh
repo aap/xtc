@@ -55,6 +55,9 @@ if [ -n "$SHOT" ]; then
 	# the GS window is titled after the elf, not "PCSX2"
 	WID=$(xdotool search --name "$(basename "$ELF" .elf)" 2>/dev/null | tail -1)
 	if [ -n "$WID" ]; then
+		# import reads the screen, so the window must not be covered;
+		# raise it (no focus change) and give the server a moment
+		xdotool windowraise "$WID" 2>/dev/null; sleep 0.5
 		import -window "$WID" "$SHOT" 2>/dev/null && echo "shot: $SHOT"
 	else
 		echo "shot: no PCSX2 window found" >&2

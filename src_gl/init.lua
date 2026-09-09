@@ -71,7 +71,8 @@ end
 function drawAxes(scale)
 	xtcSetPipeline(defaultPipeline)
 	xtcSetTexture(nil)
-	xtcSetMaterial(material)
+	xtcSetStdMaterial(material)
+	xtcSetColorMaterial(XTC_EMISSIVE)
 
 	local s = scale or 1
 	xtcBegin(XTC_LINELIST)

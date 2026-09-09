@@ -1,38 +1,16 @@
-#include "mdma.h"
+/*
+ * PS2 backend internals: the GS layer, textures, microcode descriptors,
+ * the pipelines and the state block.  The public API is common/xtc.h.
+ */
 
-#define nil NULL
-#ifndef nelem
-#define nelem(arr) (sizeof(arr)/sizeof(arr[0]))
-#endif
+#ifndef XTCI_H
+#define XTCI_H
 
-typedef  int64_t  int64;
-typedef uint64_t uint64;
-typedef  int32_t  int32;
-typedef uint32_t uint32;
-typedef  int16_t  int16;
-typedef uint16_t uint16;
-typedef  int8_t   int8;
-typedef uint8_t  uint8;
-typedef uintptr_t uintptr;
-typedef uint128_t uint128;
-
-/* C++ has no forward-declared enums (not in this vintage anyway), and does
- * not need the typedef: the tag is already a type name. */
-#ifdef __cplusplus
-#define ENUM(name) enum name
-#else
-#define ENUM(name) \
-typedef enum name name; \
-enum name
-#endif
-
-#define STRUCT(name) \
-typedef struct name name; \
-struct name
+#include "xtc.h"
 
 
 /*
- * xtcg — the GS itself: video mode, display and drawing buffers, and the
+ * xtcg -- the GS itself: video mode, display and drawing buffers, and the
  * shadow of the register state that xtc flushes into a list.
  */
 
@@ -123,15 +101,17 @@ void xtcgSetRegs(mdmaList *list);
 void xtcgFlushRegs(mdmaList *list);
 
 
+/*
+ * Textures
+ */
+
 STRUCT(xtctBuffer) {
 	uint16 bp;	// block address, relative to raster base
 	uint16 bw;	// pixel width/64
 };
 
-// NB: used to be xtcRaster
-// xtct used to be xtcr
 // TODO: use smaller types
-STRUCT(xtcTexture) {
+struct xtcTexture {
 	int32 width;
 	int32 height;
 	int32 depth;
@@ -152,54 +132,13 @@ STRUCT(xtcTexture) {
 	uint128 *pkts;
 };
 
-void xtcSetTexture(xtcTexture *tex);
-xtcTexture *xtcTextureReadPNG(const uint8 *data, uint32 len);
 void xtctTexBuildChains(xtcTexture *tex);
 void xtctUpload(xtcTexture *tex);
 
-ENUM(xtcTCC) {
-	XTC_RGB,
-	XTC_RGBA
-};
 
-ENUM(xtcTFX) {
-	XTC_MODULATE,
-	XTC_DECAL,
-	XTC_HIGHLIGHT,
-	XTC_HIGHLIGHT2
-};
-
-ENUM(xtcFilter) {
-	XTC_NEAREST,
-	XTC_LINEAR,
-	XTC_NEAREST_MIP_NEAREST,
-	XTC_NEAREST_MIP_LINEAR,
-	XTC_LINEAR_MIP_NEAREST,
-	XTC_LINEAR_MIP_LINEAR
-};
-
-ENUM(xtcWrap) {
-	XTC_REPEAT,
-	XTC_CLAMP
-};
-
-void xtcTexFunc(xtcTCC tcc, xtcTFX tfx);
-void xtcTexFilter(xtcFilter min, xtcFilter mag);
-void xtcTexWrap(xtcWrap u, xtcWrap v);
-void xtcTexLodMode(int lcm, int k, int l);
-
-void xtcColorScale(float r, float g, float b, float a);
-void xtcColorScaleTex(float r, float g, float b, float a);
-
-
-ENUM(xtcPrimType) {
-	XTC_POINTS,
-	XTC_LINELIST,
-	XTC_LINESTRIP,
-	XTC_TRILIST,
-	XTC_TRISTRIP,
-	XTC_NUM_PRIMTYPES
-};
+/*
+ * Microcode and batches
+ */
 
 // NB: keep in synch with vu1/defines.inc
 enum xtcpUsage {
@@ -225,9 +164,6 @@ STRUCT(xtcpBatchDesc) {
 	int numAttribs;
 	xtcpVertAttrib attribs[10];
 };
-
-
-
 
 /*
  * Batch vertex count is calculated in a somewhat complicated way.
@@ -289,12 +225,17 @@ void xtcpCombineMatrix(void);
 void xtcpUploadLights(void);
 
 
+/*
+ * Immediate mode
+ */
 
 STRUCT(xtcImState) {
 	float xyzw[4];
 	float stq[4];
 	uint32 rgba[4];
 	int32 normal[4];
+	float weights[4];
+	uint8 indices[4];
 
 	xtcMicrocode *code;
 	uint128 *vertstash;
@@ -308,194 +249,36 @@ STRUCT(xtcImState) {
 extern xtcImState imstate;
 
 
+/*
+ * Pipelines and prim lists
+ */
 
-STRUCT(xtcPipeline) {
+struct xtcPipeline {
 	// returns the `next' tag it opened: the caller writes the vertices,
 	// then targets the tag past them
 	mdmaTag *(*upload)(xtcPipeline *pipe, xtcPrimType primtype);
 	xtcMicrocode *code;
 };
 
-extern xtcPipeline *twodPipeline;
-extern xtcPipeline *nolightPipeline;
-extern xtcPipeline *defaultPipeline;
-
-extern xtcPipeline *stdPipeline;
-
-void xtcSetPipeline(xtcPipeline *pipe);
-
-void xtcBegin(xtcPrimType prim);
-void xtcEnd(void);
-void xtcRestartStrip(void);
-void xtcVertex(float x, float y, float z);
-void xtcTexCoord(float s, float t, float q);
-void xtcColor(uint32 r, uint32 g, uint32 b, uint32 a);
-void xtcNormal(float x, float y, float z);
-
-
-STRUCT(xtcPrimList) {
+struct xtcPrimList {
 	xtcPipeline *pipe;
 	xtcPrimType primtype;
 	uint32 size;
 	void *list;
 };
-xtcPrimList *xtcCreatePrimList(void);
-void xtcStartList(xtcPrimList *pl);
-void xtcEndList(void);
-void xtcPrimListDraw(xtcPrimList *pl);
 
 
-STRUCT(xtcVec3) { float x, y, z; };
-STRUCT(xtcVec4) { float x, y, z, w; };
-STRUCT(xtcRGBA) { float r, g, b, a; };
+/*
+ * Setup
+ */
 
-STRUCT(xtcRwMaterial) {
-	xtcRGBA color;
-	float ambient;
-	float diffuse;
-	float specular;
-	float shininess;
-};
-
-STRUCT(xtcStdMaterial) {
-	// 0.0 - 1.0
-	xtcRGBA emissive;
-	xtcRGBA ambient;
-	xtcRGBA diffuse;
-	// unused for now
-	xtcRGBA specular;	// alpha as power somehow
-};
-
-// TODO: this is dumb
-void xtcSetRwMaterial(xtcRwMaterial *mat);
-void xtcSetStdMaterial(xtcStdMaterial *mat);
-
-ENUM(xtcColorBit) {
-	XTC_EMISSIVE = 1,
-	XTC_AMBIENT  = 2,
-	XTC_DIFFUSE  = 4,
-	XTC_SPECULAR = 8,
-};
-// for std material
-void xtcSetColorMaterial(uint32 bits);
-
-
-ENUM(xtcLightType) {
-	XTC_LIGHT_DIRECT,
-	XTC_LIGHT_POINT,	// not yet
-	XTC_LIGHT_SPOT		// not yet
-};
-
-STRUCT(xtcLight) {
-	int enabled;
-	xtcLightType type;
-	xtcRGBA color;		// 0-255
-//	xtcRGBA specColor;	// maybe later?
-	xtcVec3 direction;
-	xtcVec3 position;
-};
-void xtcSetAmbient(int r, int g, int b);
-void xtcSetLight(int n, xtcLight *light);
-        
-
-void xtcSetProjectionMatrix(const float *mat);
-void xtcSetViewMatrix(const float *mat);
-void xtcSetWorldMatrix(const float *mat);
-        
-        
-void xtcViewport(int x, int y, int width, int height);
-void xtcDepthRange(int near, int far);
-void xtcScissor(int x, int y, int width, int height);
-void xtcClearColor(int r, int g, int b, int a);
-void xtcClearDepth(uint32 z);
-
-enum {
-	XTC_COLORBUF = 1,
-	XTC_DEPTHBUF = 2,
-};
-
-void xtcClear(int mask);
 void xtcSetDraw(xtcgDrawBuffer *draw);
-
-ENUM(xtceState) {
-	XTC_DEPTH_TEST,
-	XTC_ALPHA_TEST,
-	XTC_BLEND,
-	XTC_FOG,
-	XTC_TEXTURE,
-	XTC_CLIPPING		// may want to be more fine grained eventually
-};
-
-void xtcEnable(xtceState state);
-void xtcDisable(xtceState state);
-
-ENUM(xtceDepthFunc) {
-	XTC_DEPTH_NEVER,
-	XTC_DEPTH_ALWAYS,
-	XTC_DEPTH_GEQUAL,
-	XTC_DEPTH_GREATER
-};
-
-void xtcDepthFunc(xtceDepthFunc func);
-
-ENUM(xtceAlphaFunc) {
-	XTC_AFUNC_NEVER,
-	XTC_AFUNC_ALWAYS,
-	XTC_AFUNC_LESS,
-	XTC_AFUNC_LEQUAL,
-	XTC_AFUNC_EQUAL,
-	XTC_AFUNC_GEQUAL,
-	XTC_AFUNC_GREATER,
-	XTC_AFUNC_NOTEQUAL
-};
-
-ENUM(xtceAlphaFail) {
-	XTC_AFAIL_KEEP,
-	XTC_AFAIL_FB_ONLY,
-	XTC_AFAIL_ZB_ONLY,
-	XTC_AFAIL_RGB_ONLY
-};
-
-void xtcAlphaFunc(xtceAlphaFunc func, int ref, xtceAlphaFail fail);
-
-ENUM(xtceAlpha) {
-	XTC_ALPHA_SRC,
-	XTC_ALPHA_DST,
-	XTC_ALPHA_ZERO,
-	XTC_ALPHA_FIX = XTC_ALPHA_ZERO
-};
-
-void xtcBlendFunc(xtceAlpha a, xtceAlpha b, xtceAlpha c, xtceAlpha d, int fix);
-
-ENUM(xtcBlendFactor) {
-	XTC_BLEND_ZERO,
-	XTC_BLEND_ONE,
-	XTC_BLEND_SRCALPHA,
-	XTC_BLEND_INVSRCALPHA,
-	XTC_BLEND_DSTALPHA,
-	XTC_BLEND_INVDSTALPHA,
-};
-
-void xtcBlendFuncSrcDst(xtcBlendFactor src, xtcBlendFactor dst);
-void xtcFog(float start, float end, uint32 col);
-
-ENUM(xtceShadeModel) {
-	XTC_FLAT,
-	XTC_SMOOTH,
-};
-
-void xtcShadeModel(xtceShadeModel model);
-
-void xtcPixelMask(uint32 mask);
-void xtcDepthMask(int mask);
 void xtcSetList(mdmaList *list);
 void xtcInit(int width, int height, int depth);
 
 
-
-
 /*
- * sort of internal
+ * The state
  */
 
 struct xtcState
@@ -512,9 +295,9 @@ struct xtcState
 	float near, far;
 	float fogstart, fogend;
 
-	float proj[16];
-	float view[16];
-	float world[16];
+	Mat4 proj;
+	Mat4 view;
+	Mat4 world;
 
 	int clipping;
 
@@ -543,7 +326,13 @@ struct xtcState
 	xtcStdMaterial stdMaterial;
 	uint32 stdColSel;
 
-	xtcRGBA ambient;
+	Vec4 ambient;
 	xtcLight lights[8];
+
+	// for the skin pipeline, aligned so a ref can pick them up
+	Mat4 boneMatrices[64] __attribute__((aligned(16)));
+	int numBoneMatrices;
 };
 extern struct xtcState xtcState;
+
+#endif

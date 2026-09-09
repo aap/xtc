@@ -3,7 +3,7 @@
  * Everything scene-related lives in init.lua / main.fnl.
  */
 
-#include "xtc.h"
+#include "xtci.h"
 #include "xmodel.h"
 #include "app.h"
 #include "glad/glad.h"
@@ -75,28 +75,14 @@ GUI(void)
  * Helpers
  */
 
-xtcMaterial
-DefaultMaterial(void)
-{
-	xtcMaterial mat;
-	mat.colorSelector = vec4(0.0f, 0.0f, 0.0f, 0.0f);
-	mat.ambient = vec4(0.2f, 0.2f, 0.2f, 1.0f);
-	mat.diffuse = vec4(0.8f, 0.8f, 0.8f, 1.0f);
-	mat.specular = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-	mat.emissive = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-	mat.shininess = 0.0f;
-	return mat;
-}
-
 // vertex colours only
-static xtcMaterial*
+static xtcStdMaterial*
 axisMaterial(void)
 {
-	static xtcMaterial mat;
+	static xtcStdMaterial mat;
 	static bool init;
 	if(!init) {
 		mat = DefaultMaterial();
-		mat.colorSelector = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		mat.ambient = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		mat.diffuse = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		init = true;
@@ -109,21 +95,38 @@ DrawAxes(float scale = 1.0f)
 {
 	xtcSetPipeline(defaultPipeline);
 	xtcSetTexture(nil);
-	xtcSetMaterial(axisMaterial());
+	xtcSetStdMaterial(axisMaterial());
+	xtcSetColorMaterial(XTC_EMISSIVE);
 
 	xtcBegin(XTC_LINELIST);
 		xtcColor(255, 0, 0, 255);
-		xtcVertex3(0.0f, 0.0f, 0.0f);
-		xtcVertex3(scale, 0.0f, 0.0f);
+		xtcVertex(0.0f, 0.0f, 0.0f);
+		xtcVertex(scale, 0.0f, 0.0f);
 
 		xtcColor(0, 255, 0, 255);
-		xtcVertex3(0.0f, 0.0f, 0.0f);
-		xtcVertex3(0.0f, scale, 0.0f);
+		xtcVertex(0.0f, 0.0f, 0.0f);
+		xtcVertex(0.0f, scale, 0.0f);
 
 		xtcColor(0, 0, 255, 255);
-		xtcVertex3(0.0f, 0.0f, 0.0f);
-		xtcVertex3(0.0f, 0.0f, scale);
+		xtcVertex(0.0f, 0.0f, 0.0f);
+		xtcVertex(0.0f, 0.0f, scale);
 	xtcEnd();
+}
+
+// whole file into malloc'd memory, 0 on failure
+int
+readfile(const char *path, uint8 **data, uint32 *size)
+{
+	FILE *f = fopen(path, "rb");
+	if(f == nil)
+		return 0;
+	fseek(f, 0, SEEK_END);
+	*size = ftell(f);
+	*data = (uint8*)malloc(*size);
+	fseek(f, 0, SEEK_SET);
+	fread(*data, 1, *size, f);
+	fclose(f);
+	return 1;
 }
 
 FILE*

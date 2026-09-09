@@ -13,7 +13,8 @@
  * with glm: v+w, s*v, m*n, m*v, q*p.
  */
 
-#pragma once
+#ifndef XMATH_H
+#define XMATH_H
 
 #include <math.h>
 
@@ -108,6 +109,11 @@ static inline Vec4 m4xform(const Mat4 *m, Vec4 v) {
 // affine helpers: points get translated, vectors don't
 static inline Vec3 m4xformPoint(const Mat4 *m, Vec3 v) { return v4tov3(m4xform(m, v3tov4(v, 1.0f))); }
 static inline Vec3 m4xformVec(const Mat4 *m, Vec3 v) { return v4tov3(m4xform(m, v3tov4(v, 0.0f))); }
+// v through the inverse of an orthonormal m, i.e. its transpose (the
+// world matrix taking a light direction into object space)
+static inline Vec3 m4invXformVecO(const Mat4 *m, Vec3 v) {
+	return vec3(v3dot(v4tov3(m->x), v), v3dot(v4tov3(m->y), v), v3dot(v4tov3(m->z), v));
+}
 
 static inline Mat4 m4mulP(const Mat4 *a, const Mat4 *b) {
 	return mat4(m4xform(a, b->x), m4xform(a, b->y), m4xform(a, b->z), m4xform(a, b->w));
@@ -254,6 +260,7 @@ static inline Mat4 qtomat4(Quat q) {
 
 // shortest-path interpolation between unit quaternions
 static inline Quat qslerp(Quat a, Quat b, float t) {
+	float th, s;
 	float c = qdot(a, b);
 	if(c < 0.0f) {
 		b = qneg(b);
@@ -262,8 +269,8 @@ static inline Quat qslerp(Quat a, Quat b, float t) {
 	// nearly parallel: lerp, avoiding the division
 	if(c > 0.9995f)
 		return qnormalized(qadd(a, qscale(t, qsub(b, a))));
-	float th = acosf(c);
-	float s = sinf(th);
+	th = acosf(c);
+	s = sinf(th);
 	return qadd(qscale(sinf((1.0f-t)*th)/s, a), qscale(sinf(t*th)/s, b));
 }
 
@@ -330,5 +337,7 @@ static inline Quat operator-(Quat p, Quat q) { return qsub(p, q); }
 static inline Quat operator*(Quat p, Quat q) { return qmul(p, q); }
 static inline Quat operator*(float s, Quat q) { return qscale(s, q); }
 static inline Quat operator*(Quat q, float s) { return qscale(s, q); }
+
+#endif
 
 #endif

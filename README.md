@@ -8,10 +8,31 @@ similar in spirit to traditional OpenGL.
 * Standard OpenGL render states (as far as possible)
 * VU1 rendering, including clipping
 * Immediate rendering & simple display lists
-* Lighting
+* Lighting, RenderWare style and GL/PSP style
+* Skinning
 * Textures
+* A portable model, skeleton and animation layer with text file formats
+* An OpenGL implementation of the same API for prototyping and tooling
 
 ![image](https://github.com/aap/xtc/assets/1521437/2a864453-38d2-4035-acd4-76fffa109627)
+
+## Layout
+
+* `common/` -- the public API (`xtc.h`), the math (`xmath.h`) and the
+  platform independent model, skeleton, animation and drawing code
+  (`xmodel.*`, `xanim.cpp`, `xdraw.cpp`, the text and chunk formats).
+  Built into both backends.
+* `src/` -- the PS2 backend: the GS layer, VU1 pipelines and their
+  microcode (`vu1/`), textures, the example scenes and a small skeleton
+  (`main.c`, `scenes.c`, `joy.c` for the pad, `fio.c` for host files).
+* `src_gl/` -- the OpenGL backend and sketch: the same API on GLFW/glad,
+  plus assimp import, a Lua/Fennel driven viewer and demo scripts.
+* `tools/` -- offline tooling: prim lists as dvp-as source
+  (`primdsm.py`, `DSMNOTES.md`), the xpl asset kit, OBJ helpers,
+  animation cutting, the PCSX2 runner.
+* `samples/` -- the sample assets, a submodule of
+  [xtc-assets](https://github.com/aap/xtc-assets):
+  the fox, the skinning test model (38 bones, 69 clips).
 
 ## Architecture
 
@@ -22,6 +43,21 @@ On top of that sits XTC, which implements an OpenGL-like interface.
 
 Where exactly the line between the two should be drawn
 is not entirely clear to me yet.
+
+### The shared API
+
+`common/xtc.h` is the one public header.
+Each backend provides `xtcplat.h` (integer types) ahead of it and keeps
+its internals in its own `xtci.h`.
+The header fixes the conventions both backends follow:
+column-major `Mat4` with the GL camera convention,
+float colours as `Vec4` in 0..1,
+vertex colours as bytes,
+texture coordinates with row 0 at the top of the image,
+and 8 light slots in world space.
+The PS2 backend adapts where its hardware differs
+(matrices are combined before the VU sees them,
+colours are scaled to 0..255 at upload).
 
 ### Microcode & Pipelines
 
@@ -36,11 +72,22 @@ does the necessary state changes and VIF uploads and renders the geometry.
 Its batch descriptor (`xtcpBatchDesc`) describes the layout of the input buffer.
 (TODO: this probably belongs to the microcode logically)
 
-There are currently three pipelines implemented:
+Pipelines are globals with the same names on both backends:
 
-* 2d (`twodPipeline`). Simple 2d transformations, no clipping
-* 3d, no lighting (`nolightPipeline`)
-* 3d, lighting (`defaultPipeline`). Clipping only for triangles
+* `twodPipeline`. Simple 2d transformations, no clipping
+* `nolightPipeline`. 3d, no lighting
+* `defaultPipeline`. 3d, RenderWare style lighting, `xtcRwMaterial`
+* `stdPipeline`. 3d, GL/PSP style lighting, `xtcStdMaterial`
+* `skinPipeline`. `stdPipeline` plus skinning, up to 64 bones
+
+The std pipe packs the enabled directional lights into matrices
+in object space, so the diffuse term per vertex is one matrix multiply,
+a clamp and a second matrix multiply per four lights.
+Its lighting routine is picked per draw through a table of code addresses,
+by light count and by which material terms take the vertex colour.
+The skin pipe unpacks a fifth attribute (four weights with the matrix
+offset in the low byte of each), skins vertices and normals in place,
+compacts the vertex to the std layout and shares the rest of the code.
 
 ### Rendering
 
@@ -55,52 +102,96 @@ Such a primlist can then be drawn with `xtcPrimListDraw`.
 It is important to note that a primlist is tied to a specific
 pipeline because of the input buffer layout.
 
+Prim lists can also be made offline:
+`tools/primdsm.py` writes the same DMA chain as dvp-as source,
+either with the vertices inline (byte for byte what the console records)
+or as a ref chain into per-attribute arrays that no pipeline layout touches.
+`ee-dvp-as` assembles it and the linker puts it into the ELF
+(`src/data/`, see `tools/DSMNOTES.md` for the syntax that was verified).
+
 Render states are handled similarly to OpenGL.
 GS register changes are cached so redundant state changes
 should not cause terrible overhead.
 
 ### Lighting & Materials
 
-Only ambient and directional lights are supported so far.
-There is no support for specular lighting yet.
+Ambient and directional lights are supported;
+the std pipe takes up to 8 directionals, the RW pipe as many as fit.
+There is no specular lighting yet.
 
-The material and lighting model used right now
-is that of RenderWare.
-This means a material consists of a color,
-an intensity for ambient, diffuse and specular lighting each,
-and a shininess.
-Because there is specular lighting yet
-the specular intensity and the shininess are currently unused.
-
-Full OpenGL-compatibility would be nice
-but is not very efficient
-because of all the ways colors and be specified
-and the lighting complexity.
+Materials are the constants of a pipeline, so there are two kinds:
+`xtcRwMaterial` (a colour and ambient/diffuse/specular intensities)
+for the default pipe and `xtcStdMaterial`
+(emissive, ambient, diffuse and specular colours, the power in specular alpha)
+for the std and skin pipes.
+Which terms take the vertex colour instead is render state,
+`xtcSetColorMaterial`, like `glColorMaterial`.
 
 ### Textures
 
 Currently all texture uploads are synchronous over PATH2.
 This is of course inefficient and will be improved in the future.
 
-A texture (`xtcTexture`) can currently be loaded from a PNG file
-and used for rendering with `xtcBindTexture`.
+A texture (`xtcTexture`) can be loaded from a PNG with `xtcTextureReadPNG`
+(4 and 8 bit palettes, 24 and 32 bit)
+and used for rendering with `xtcSetTexture`.
 How exactly multi-pass rendering and multi-texturing will work
 is not clear yet.
-Generally textures are pretty bare bones so far.
-Expect the API to change. 
+
+### Models & Animation
+
+`common/xmodel.h` has the portable data:
+`xModel` with nodes, meshes, materials, geometry,
+`xSkeleton` with RenderWare style push/pop bone flags,
+`xSkin` with four weights and bone indices per vertex,
+`xAnimation` with rotation, translation and scale key tracks,
+and `xAnimPlayer` to drive a model with a clip.
+
+Two file formats:
+`.xm`/`.xan` are text and portable, written by the GL sketch
+(from anything assimp reads, or a RenderWare DFF) and loaded on both backends;
+`.chk` is a relocated memory image, fast to load but per target,
+and only the PC writes it so far.
+`buildXModel` turns the geometry into prim lists through the std or skin pipe,
+`xModelDraw` draws a model with its skeleton.
+The PS2 reads the files over `host:` (`src/xfile.c`).
+
+### The GL sketch
+
+`src_gl/` is where things get tried first.
+`./xtc model` views a model and plays its clips
+(`-save` writes the `.xm`/`.xan` files),
+`./xtc -script lights.fnl` and `skin.fnl` are the lighting and skinning demos.
+The screenshot mode (`-shot`) makes the renders reproducible,
+so the PS2 has a picture to aim for.
+
+## Building
+
+The PS2 build has two flavours:
+`make` with the Sony SDK toolchain and `make freesce` with freesce's,
+which is binutils 2.9 and gcc 2.95 and compiles the C as C++.
+Both expect MDMA as a sibling checkout,
+and the sample scenes need the assets submodule (`git submodule update --init`).
+`make` finds `ee-gcc` on the PATH, so the SDK's `ee/gcc/bin` has to come first.
+`tools/pcsx2run.sh -s scene` runs a scene in PCSX2 for a bounded time
+and can take a screenshot;
+the scene files load from the directory of the ELF.
+
+The GL sketch builds with `make` in `src_gl/`
+and wants GLFW, assimp, Lua, Dear ImGui and librw.
 
 ## To-do
 
-XTC is still very bare bones.
-It has most of the fundamental features but
+XTC has most of the fundamental features but
 still requires a lot of work on the details.
 
 * General
 	* figure out division between MDMA and XTC properly
 	* some debugging/profiling functionality
 	* better chain handling and buffer flipping
-	* store/load resources from files
-	* improve display lists
+	* chunk files written by the console itself, ref chains straight from loaded geometry
+	* a resident VU1 library with per-pipeline front ends
+	* Lua on the PS2
 
 * Textures
 	* PATH3 texture uploads
@@ -115,20 +206,14 @@ still requires a lot of work on the details.
 	* more render pipelines
 		* some multi-pass effects (env mapping)
 		* specular light
-		* skinning
+		* sprites/particles from points
 		* morphing?
-	* try for more accurate OpenGL lighting model
-	* material model should be per pipeline
+	* the material/pass structure of the model layer
 	* don't re-upload matrix and lights all the time
 
 * Toolchain
 	* currently uses (free!) sony SDK, would be nice to support open source ps2sdk
 		* inline assembly might be problematic
-
-* Examples
-	* examples to demonstrate the various features
-	* simple skeleton with camera and scene-graph functionality
-		* load models with assimp?
 
 ## Credits
 

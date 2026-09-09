@@ -1,4 +1,4 @@
-#include "xtc.h"
+#include "xtci.h"
 #include "xtcpipe.h"
 
 #include <stdio.h>
@@ -53,8 +53,8 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 		mdmaVifStCycl(l, 4,4, 0);
 		mdmaBeginUnpack(l, vuGifTag, 3, UNPACK_V4_32, 0);
 			mdmaGifTag(l, 0, 1, 1,primtype, GIF_PACKED, 3, xtcpVertRegs);
-			mdmaAddF(l, m->color.r*scl[0], m->color.g*scl[1],
-				m->color.b*scl[2], m->color.a*scl[3]);
+			mdmaAddF(l, m->color.x*scl[0], m->color.y*scl[1],
+				m->color.z*scl[2], m->color.w*scl[3]);
 			mdmaAddF(l, m->ambient, m->specular, m->diffuse, m->shininess);
 		mdmaEndUnpack(l);
 

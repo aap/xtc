@@ -1,4 +1,4 @@
-#include "xtc.h"
+#include "xtci.h"
 #include "xtcpipe.h"
 
 #include <libgraph.h>

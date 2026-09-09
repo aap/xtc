@@ -1,4 +1,4 @@
-#include "xtc.h"
+#include "xtci.h"
 #include "xmodel.h"
 #include "app.h"
 #include "glad/glad.h"
@@ -473,6 +473,23 @@ L_xtcSetWorldMatrix(lua_State *L)
 	return 0;
 }
 
+// xtcSetBoneMatrices({mat4, ...})
+static int
+L_xtcSetBoneMatrices(lua_State *L)
+{
+	static Mat4 mats[64];
+	luaL_checktype(L, 1, LUA_TTABLE);
+	int n = lua_rawlen(L, 1);
+	if(n > 64) n = 64;
+	for(int i = 0; i < n; i++) {
+		lua_rawgeti(L, 1, i+1);
+		mats[i] = *checkmat4(L, -1);
+		lua_pop(L, 1);
+	}
+	xtcSetBoneMatrices(mats, n);
+	return 0;
+}
+
 static int
 L_xtcGetWorldMatrix(lua_State *L)
 {
@@ -540,8 +557,8 @@ L_xtcIndices(lua_State *L)
 {
 	int i1 = luaL_checkinteger(L, 1);
 	int i2 = luaL_checkinteger(L, 2);
-	int i3 = luaL_checkinteger(L, 2);
-	int i4 = luaL_checkinteger(L, 2);
+	int i3 = luaL_checkinteger(L, 3);
+	int i4 = luaL_checkinteger(L, 4);
 	xtcIndices(i1, i2, i3, i4);
 	return 0;
 }
@@ -551,8 +568,8 @@ L_xtcWeights(lua_State *L)
 {
 	float w1 = luaL_checknumber(L, 1);
 	float w2 = luaL_checknumber(L, 2);
-	float w3 = luaL_checknumber(L, 2);
-	float w4 = luaL_checknumber(L, 2);
+	float w3 = luaL_checknumber(L, 3);
+	float w4 = luaL_checknumber(L, 4);
 	xtcWeights(w1, w2, w3, w4);
 	return 0;
 }
@@ -653,9 +670,9 @@ L_xtcLight(lua_State *L)
 static int
 L_xtcSetAmbient(lua_State *L)
 {
-	xtcSetAmbient(luaL_checkinteger(L, 1),
-		luaL_checkinteger(L, 2),
-		luaL_checkinteger(L, 3));
+	xtcSetAmbient(luaL_checknumber(L, 1),
+		luaL_checknumber(L, 2),
+		luaL_checknumber(L, 3));
 	return 0;
 }
 
@@ -670,44 +687,47 @@ L_xtcSetLight(lua_State *L)
 
 
 
-static StructDesc xtcMaterial_desc[] = {
-	{ "colorSelector", offsetof(xtcMaterial, colorSelector), 'v4' },
-	{ "ambient", offsetof(xtcMaterial, ambient), 'v4' },
-	{ "diffuse", offsetof(xtcMaterial, diffuse), 'v4' },
-	{ "specular", offsetof(xtcMaterial, specular), 'v4' },
-	{ "emissive", offsetof(xtcMaterial, emissive), 'v4' },
-	{ "shininess", offsetof(xtcMaterial, shininess), 'f' },
+static StructDesc xtcStdMaterial_desc[] = {
+	{ "ambient", offsetof(xtcStdMaterial, ambient), 'v4' },
+	{ "diffuse", offsetof(xtcStdMaterial, diffuse), 'v4' },
+	{ "specular", offsetof(xtcStdMaterial, specular), 'v4' },
+	{ "emissive", offsetof(xtcStdMaterial, emissive), 'v4' },
 	{ nil, 0, 0 }
 };
-USERTYPEPTR(xtcMaterial, "xtcMaterial")
-static const luaL_Reg xtcMaterial__meta[] = {
-	{ "__index", xtcMaterial__index },
-	{ "__newindex", xtcMaterial__newindex },
-	{ "__gc", xtcMaterial__gc },
+USERTYPEPTR(xtcStdMaterial, "xtcStdMaterial")
+static const luaL_Reg xtcStdMaterial__meta[] = {
+	{ "__index", xtcStdMaterial__index },
+	{ "__newindex", xtcStdMaterial__newindex },
+	{ "__gc", xtcStdMaterial__gc },
 	{ nil, nil }
 };
 
 static int
-L_xtcMaterial(lua_State *L)
+L_xtcStdMaterial(lua_State *L)
 {
-	LuaPtr *p = mklptr(L, emalloc(sizeof(xtcMaterial)), 1);
-	xtcMaterial *m = (xtcMaterial*)p->p;
-	m->colorSelector = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+	LuaPtr *p = mklptr(L, emalloc(sizeof(xtcStdMaterial)), 1);
+	xtcStdMaterial *m = (xtcStdMaterial*)p->p;
 	m->ambient = vec4(0.2f, 0.2f, 0.2f, 1.0f);
 	m->diffuse = vec4(0.8f, 0.8f, 0.8f, 1.0f);
-	m->specular = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	m->specular = vec4(0.0f, 0.0f, 0.0f, 0.0f);	// w is the power
 	m->emissive = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-	m->shininess = 0.0f;
-	luaL_getmetatable(L, "xtcMaterial");
+	luaL_getmetatable(L, "xtcStdMaterial");
 	lua_setmetatable(L, -2);
 	return 1;
 }
 
 static int
-L_xtcSetMaterial(lua_State *L)
+L_xtcSetStdMaterial(lua_State *L)
 {
-	xtcMaterial *m = (xtcMaterial*)checklptr(L, 1, "xtcMaterial");
-	xtcSetMaterial(m);
+	xtcStdMaterial *m = (xtcStdMaterial*)checklptr(L, 1, "xtcStdMaterial");
+	xtcSetStdMaterial(m);
+	return 0;
+}
+
+static int
+L_xtcSetColorMaterial(lua_State *L)
+{
+	xtcSetColorMaterial(luaL_checkinteger(L, 1));
 	return 0;
 }
 
@@ -732,8 +752,7 @@ registerXtc(lua_State *L)
 	// the pipelines are globals, like on the PS2
 	mkptr(L, "xtcPipeline", defaultPipeline); lua_setglobal(L, "defaultPipeline");
 	mkptr(L, "xtcPipeline", skinPipeline); lua_setglobal(L, "skinPipeline");
-	mkptr(L, "xtcPipeline", lit4Pipeline); lua_setglobal(L, "lit4Pipeline");
-	mkptr(L, "xtcPipeline", lit8Pipeline); lua_setglobal(L, "lit8Pipeline");
+	mkptr(L, "xtcPipeline", stdPipeline); lua_setglobal(L, "stdPipeline");
 
 	newMetatable(L, "xtcPrimList", nil);
 	lua_pop(L, 1);
@@ -747,10 +766,11 @@ registerXtc(lua_State *L)
 	lua_register(L, "xtcSetTexture", L_xtcSetTexture);
 	lua_register(L, "xtcSetTextureN", L_xtcSetTextureN);
 
-	newMetatable(L, "xtcMaterial", xtcMaterial__meta);
+	newMetatable(L, "xtcStdMaterial", xtcStdMaterial__meta);
 	lua_pop(L, 1);
-	lua_register(L, "xtcMaterial", L_xtcMaterial);
-	lua_register(L, "xtcSetMaterial", L_xtcSetMaterial);
+	lua_register(L, "xtcStdMaterial", L_xtcStdMaterial);
+	lua_register(L, "xtcSetStdMaterial", L_xtcSetStdMaterial);
+	lua_register(L, "xtcSetColorMaterial", L_xtcSetColorMaterial);
 
 	newMetatable(L, "xtcLight", xtcLight__meta);
 	lua_pop(L, 1);
@@ -766,6 +786,7 @@ registerXtc(lua_State *L)
 	lua_register(L, "xtcSetViewMatrix", L_xtcSetViewMatrix);
 	lua_register(L, "xtcSetWorldMatrix", L_xtcSetWorldMatrix);
 	lua_register(L, "xtcGetWorldMatrix", L_xtcGetWorldMatrix);
+	lua_register(L, "xtcSetBoneMatrices", L_xtcSetBoneMatrices);
 	lua_register(L, "xtcBegin", L_xtcBegin);
 	lua_register(L, "xtcEnd", L_xtcEnd);
 	lua_register(L, "xtcVertex", L_xtcVertex);
@@ -807,10 +828,7 @@ checkxanimplayer(lua_State *L, int n)
 static int
 L_loadXModel(lua_State *L)
 {
-	const char *name = luaL_checkstring(L, 1);
-	FILE *f = efopen(name, "r");
-	xModel *mdl = loadXModel(f);
-	fclose(f);
+	xModel *mdl = loadXModel(luaL_checkstring(L, 1));
 	if(mdl == nil)
 		return 0;
 	buildXModel(mdl);
@@ -919,12 +937,12 @@ L_xModelDraw(lua_State *L)
 	return 0;
 }
 
-// mdl:setMaterial(xtcMaterial): every mesh gets this material
+// mdl:setMaterial(xtcStdMaterial): every mesh gets this material
 static int
 L_xModelSetMaterial(lua_State *L)
 {
 	xModel *mdl = checkxmodel(L, 1);
-	xtcMaterial *m = (xtcMaterial*)checklptr(L, 2, "xtcMaterial");
+	xtcStdMaterial *m = (xtcStdMaterial*)checklptr(L, 2, "xtcStdMaterial");
 	for(int i = 0; i < mdl->numMeshes; i++)
 		if(mdl->meshes[i]->material)
 			mdl->meshes[i]->material->material = *m;
@@ -990,9 +1008,7 @@ static const luaL_Reg xModel_methods[] = {
 static int
 L_loadXAnimList(lua_State *L)
 {
-	FILE *f = efopen(luaL_checkstring(L, 1), "r");
-	xAnimList *al = loadXAnimList(f);
-	fclose(f);
+	xAnimList *al = loadXAnimList(luaL_checkstring(L, 1));
 	if(al == nil)
 		return 0;
 	return mkptr(L, "xAnimList", al);

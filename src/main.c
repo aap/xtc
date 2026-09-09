@@ -1,5 +1,4 @@
-#include "xtc.h"
-#include "m.h"
+#include "xtci.h"
 #include "mem.h"
 #include "joy.h"
 #include "scenes.h"
@@ -24,11 +23,11 @@ mdmaArena vifArena;
 mdmaList viflist;
 uint128 vifBuffer[100*1024];
 
-float identity[16] = {
-	1.0f, 0.0f, 0.0f, 0.0f,
-	0.0f, 1.0f, 0.0f, 0.0f,
-	0.0f, 0.0f, 1.0f, 0.0f,
-	0.0f, 0.0f, 0.0f, 1.0f
+Mat4 identity = {
+	{ 1.0f, 0.0f, 0.0f, 0.0f },
+	{ 0.0f, 1.0f, 0.0f, 0.0f },
+	{ 0.0f, 0.0f, 1.0f, 0.0f },
+	{ 0.0f, 0.0f, 0.0f, 1.0f }
 };
 
 /* orbit camera around the origin; left stick orbits, right stick Y zooms */
@@ -39,7 +38,8 @@ float camDist = 4.7f;
 void
 updateCam(void)
 {
-	float proj[16], cam[16], view[16];
+	Mat4 proj, view;
+	Vec3 pos;
 
 	camTheta += 0.05f*joy.lx;
 	camPhi -= 0.05f*joy.ly;
@@ -48,19 +48,13 @@ updateCam(void)
 	camDist += 0.1f*joy.ry;
 	if(camDist < 0.5f) camDist = 0.5f;
 
-	makePerspective(proj, 70.0f, 4.0f/3.0f, 0.1f, 100.0f);
-	xtcSetProjectionMatrix(proj);
-	float pos[3] = {
-		camDist*cosf(camPhi)*cosf(camTheta),
-		camDist*cosf(camPhi)*sinf(camTheta),
-		camDist*sinf(camPhi)
-	};
-	float targ[3] = { 0.0f, 0.0f, 0.0f };
-	float up[3] = { 0.0f, 0.0f, 1.0f };
-	float fwd[3] = { targ[0]-pos[0], targ[1]-pos[1], targ[2]-pos[2] };
-	makeLookAt(cam, fwd, up, pos);
-	invertOrthonormal(view, cam);
-	xtcSetViewMatrix(view);
+	proj = m4persp(70.0f, 4.0f/3.0f, 0.1f, 100.0f);
+	xtcSetProjectionMatrix(&proj);
+	pos = vec3(camDist*cosf(camPhi)*cosf(camTheta),
+	           camDist*cosf(camPhi)*sinf(camTheta),
+	           camDist*sinf(camPhi));
+	view = m4invOrtho(m4lookat(pos, vec3(0.0f, 0.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f)));
+	xtcSetViewMatrix(&view);
 }
 
 int curScene;
@@ -127,7 +121,7 @@ main(int argc, char *argv[])
 		xtcClear(XTC_COLORBUF | XTC_DEPTHBUF);
 
 		updateCam();
-		xtcSetWorldMatrix(identity);
+		xtcSetWorldMatrix(&identity);
 
 		// the baseline the scenes start from
 		xtcEnable(XTC_DEPTH_TEST);

@@ -97,7 +97,7 @@ all: $(EXE)
 $(EXE): $(OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
 
-XTC_H = xtc.h $(COMMON)/xmath.h
+XTC_H = $(COMMON)/xtc.h $(COMMON)/xmath.h xtcplat.h xtci.h
 XMODEL_H = $(COMMON)/xmodel.h $(XTC_H)
 build/main.o: main.cpp app.h $(XTC_H)
 build/app.o: app.cpp app.h $(XMODEL_H)

@@ -96,7 +96,7 @@ xAnimPlayerSetAnim(xAnimPlayer *p, xAnimation *a)
 		else {
 			xNode *n = findXNode(mdl->root, ch->name);
 			if(n == nil)
-				fprintf(stderr, "warning: no node for channel %s\n", ch->name);
+				printf("warning: no node for channel %s\n", ch->name);
 			p->targets[i] = n ? &n->localMatrix : nil;
 		}
 	}

@@ -1,11 +1,11 @@
-;; lighting test for the lit4/lit8 pipelines: one sphere prim list under
+;; lighting test for the std pipeline: one sphere prim list under
 ;; a global ambient, up to 8 coloured directional lights and one specular.
 ;;
 ;;   ./xtc -script lights.fnl [-model FILE] [-lights N] [-shininess S]
 ;;         [-intensity I] [-nospin] [-noaxes] [-shot FILE] [-frames N]
 ;;
 ;; -model draws that (y-up, e.g. ../monkey.obj) instead of the sphere.
-;; -lights picks the pipeline: up to 4 lights use lit4, more use lit8.
+;; the std pipeline picks its 4 or 8 light shader by the enabled count.
 ;; light 0 is white and the specular light, the others go round the hue
 ;; wheel, alternately from above and below.  the lights stay put in world
 ;; space while the sphere turns, so the object-space light matrices get
@@ -84,7 +84,7 @@
     pl))
 
 (fn set-lights []
-  (xtcSetAmbient 30 30 30)
+  (xtcSetAmbient (/ 30 255) (/ 30 255) (/ 30 255))
   (for [i 1 8]
     (let [l (. lights i)
           from (light-from i)]
@@ -98,7 +98,8 @@
 (fn draw-lines []
   (xtcSetPipeline defaultPipeline)
   (xtcSetTexture nil)
-  (xtcSetMaterial linemat)
+  (xtcSetStdMaterial linemat)
+  (xtcSetColorMaterial _G.XTC_EMISSIVE)
   (xtcBegin _G.XTC_LINELIST)
   (when ui.axes
     (xtcColor 255 0 0 255) (xtcVertex 0 0 0) (xtcVertex 1.5 0 0)
@@ -118,16 +119,14 @@
   (set _G.opts (parse-args))
 
   ;; a blinn-style material for the sphere...
-  (let [m (xtcMaterial)]
-    (set m.colorSelector (vec4 0 0 0 0))
+  (let [m (xtcStdMaterial)]
     (set m.ambient (vec4 1 1 1 1))
     (set m.diffuse (vec4 0.9 0.9 0.9 1))
     (set m.specular (vec4 1 1 1 1))
     (set m.emissive (vec4 0 0 0 1))
     (set material m))
   ;; ...and an unlit one for the lines: emissive from the vertex colour
-  (let [m (xtcMaterial)]
-    (set m.colorSelector (vec4 0 0 0 1))
+  (let [m (xtcStdMaterial)]
     (set m.ambient (vec4 0 0 0 1))
     (set m.diffuse (vec4 0 0 0 1))
     (set linemat m))
@@ -170,15 +169,15 @@
 
     ;; the sphere turns, the lights don't
     (xtcSetWorldMatrix (* (_G.rotZ (* 0.4 time)) (_G.rotX 0.4)))
-    (set material.shininess ui.shininess)
-    (xtcSetMaterial material)
+    (set material.specular (vec4 1 1 1 ui.shininess))
+    (xtcSetStdMaterial material)
+    (xtcSetColorMaterial 0)
     (xtcSetTexture nil)
-    (let [pipe (if (<= ui.nlights 4) lit4Pipeline lit8Pipeline)]
-      (xtcSetPipeline pipe)
-      (if mdl
-          (do (mdl:setMaterial material)
-              (mdl:draw 0 pipe))
-          (xtcPrimListDraw sphere))))
+    (xtcSetPipeline stdPipeline)
+    (if mdl
+        (do (mdl:setMaterial material)
+            (mdl:draw 0 stdPipeline))
+        (xtcPrimListDraw sphere)))
 
   ;; batch mode: screenshot and leave
   (when _G.opts.shot
@@ -189,7 +188,7 @@
 
 (fn gui []
   (when (imguiBegin "Lights")
-    (imguiText (.. "pipeline: " (if (<= ui.nlights 4) "lit4" "lit8")))
+    (imguiText (.. "std pipeline, " (if (<= ui.nlights 4) "4" "8") " light shader"))
     (set ui.nlights (imguiSliderInt "Lights" ui.nlights 0 8))
     (set ui.intensity (imguiSliderFloat "Intensity" ui.intensity 0 1))
     (set ui.shininess (imguiSliderFloat "Shininess" ui.shininess 0 128))

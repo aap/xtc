@@ -110,15 +110,8 @@ PreprocLoop:
 	nop				ibne vi02,vi03,PreprocLoop
 	nop				iaddiu vi02,vi02,4*numInAttribs
 
-	nop				ilw.w vi02,lightBase(vi00)	; light processor
-	nop				nop
-	nop				jalr vi15,vi02
-	nop				nop
-;;	nop				bal vi15,LtWhiteV
-;;	nop				bal vi15,LtBaseV
-;;	nop				bal vi15,LtBaseVDir
-;;	nop				bal vi15,LtBaseVDirV
-;;	nop				bal vi15,LtBaseVDir8
+	nop				ilw.w vi15,lightBase(vi00)	; light processor
+	nop				jalr vi15,vi15
 	nop				nop
 	nop				jr vi09
 	nop				nop

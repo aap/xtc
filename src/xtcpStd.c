@@ -1,18 +1,18 @@
-#include "xtc.h"
+#include "xtci.h"
 #include "xtcpipe.h"
-#include "m.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <libgraph.h>
 
 extern uint32 xtcStdLightProcs[5];
+extern uint32 xtcStdSkinLightProcs[5];
 
 int
-getLightBlock(uint128 *lightDirs, xtcRGBA *lightCols)
+getLightBlock(uint128 *lightDirs, Vec4 *lightCols)
 {
 	int ndir;
-	float dir[3];
+	Vec3 dir;
 	float (*d)[4] = (float (*)[4])lightDirs;
 
 	memset(lightDirs, 0, 4*sizeof(uint128));
@@ -22,11 +22,11 @@ getLightBlock(uint128 *lightDirs, xtcRGBA *lightCols)
 	for(uint32 i = 0; i < nelem(xtcState.lights); i++) {
 		xtcLight *l = &xtcState.lights[i];
 		if(l->enabled && l->type == XTC_LIGHT_DIRECT && ndir < 4) {
-			invXformVecO(dir, xtcState.world, (float*)&l->direction);
-			d[0][ndir] = -dir[0];
-			d[1][ndir] = -dir[1];
-			d[2][ndir] = -dir[2];
-			lightCols[ndir] = l->color;
+			dir = m4invXformVecO(&xtcState.world, l->direction);
+			d[0][ndir] = -dir.x;
+			d[1][ndir] = -dir.y;
+			d[2][ndir] = -dir.z;
+			lightCols[ndir] = v4scale(255.0f, l->color);	// the VU works in 0..255
 			ndir++;
 		}
 	}
@@ -38,20 +38,20 @@ printf("%g %g %g\n", d[0][1], d[1][1], d[2][1]);
 printf("%g %g %g\n", d[0][2], d[1][2], d[2][2]);
 printf("%g %g %g\n", d[0][3], d[1][3], d[2][3]);
 printf("light colors\n");
-printf("%g %g %g %g\n", c[0].r, c[0].g, c[0].b, c[0].a);
-printf("%g %g %g %g\n", c[1].r, c[1].g, c[1].b, c[1].a);
-printf("%g %g %g %g\n", c[2].r, c[2].g, c[2].b, c[2].a);
-printf("%g %g %g %g\n", c[3].r, c[3].g, c[3].b, c[3].a);
+printf("%g %g %g %g\n", c[0].x, c[0].y, c[0].z, c[0].w);
+printf("%g %g %g %g\n", c[1].x, c[1].y, c[1].z, c[1].w);
+printf("%g %g %g %g\n", c[2].x, c[2].y, c[2].z, c[2].w);
+printf("%g %g %g %g\n", c[3].x, c[3].y, c[3].z, c[3].w);
 printf("\n\n");
 */
 	return ndir;
 }
 
 int
-getLightBlock8(uint128 *lightDirs, xtcRGBA *lightCols)
+getLightBlock8(uint128 *lightDirs, Vec4 *lightCols)
 {
 	int ndir;
-	float dir[3];
+	Vec3 dir;
 	float (*d)[4] = (float (*)[4])lightDirs;
 
 	memset(lightDirs, 0, 8*sizeof(uint128));
@@ -61,11 +61,11 @@ getLightBlock8(uint128 *lightDirs, xtcRGBA *lightCols)
 	for(uint32 i = 0; i < nelem(xtcState.lights); i++) {
 		xtcLight *l = &xtcState.lights[i];
 		if(l->enabled && l->type == XTC_LIGHT_DIRECT && ndir < 8) {
-			invXformVecO(dir, xtcState.world, (float*)&l->direction);
-			d[(ndir&4)+0][ndir&3] = -dir[0];
-			d[(ndir&4)+1][ndir&3] = -dir[1];
-			d[(ndir&4)+2][ndir&3] = -dir[2];
-			lightCols[ndir] = l->color;
+			dir = m4invXformVecO(&xtcState.world, l->direction);
+			d[(ndir&4)+0][ndir&3] = -dir.x;
+			d[(ndir&4)+1][ndir&3] = -dir.y;
+			d[(ndir&4)+2][ndir&3] = -dir.z;
+			lightCols[ndir] = v4scale(255.0f, l->color);	// the VU works in 0..255
 			ndir++;
 		}
 	}
@@ -81,60 +81,60 @@ printf("%g %g %g\n", d[4][1], d[5][1], d[6][1]);
 printf("%g %g %g\n", d[4][2], d[5][2], d[6][2]);
 printf("%g %g %g\n", d[4][3], d[5][3], d[6][3]);
 printf("light colors\n");
-printf("%g %g %g %g\n", c[0].r, c[0].g, c[0].b, c[0].a);
-printf("%g %g %g %g\n", c[1].r, c[1].g, c[1].b, c[1].a);
-printf("%g %g %g %g\n", c[2].r, c[2].g, c[2].b, c[2].a);
-printf("%g %g %g %g\n", c[3].r, c[3].g, c[3].b, c[3].a);
-printf("%g %g %g %g\n", c[4].r, c[4].g, c[4].b, c[4].a);
-printf("%g %g %g %g\n", c[5].r, c[5].g, c[5].b, c[5].a);
-printf("%g %g %g %g\n", c[6].r, c[6].g, c[6].b, c[6].a);
-printf("%g %g %g %g\n", c[7].r, c[7].g, c[7].b, c[7].a);
+printf("%g %g %g %g\n", c[0].x, c[0].y, c[0].z, c[0].w);
+printf("%g %g %g %g\n", c[1].x, c[1].y, c[1].z, c[1].w);
+printf("%g %g %g %g\n", c[2].x, c[2].y, c[2].z, c[2].w);
+printf("%g %g %g %g\n", c[3].x, c[3].y, c[3].z, c[3].w);
+printf("%g %g %g %g\n", c[4].x, c[4].y, c[4].z, c[4].w);
+printf("%g %g %g %g\n", c[5].x, c[5].y, c[5].z, c[5].w);
+printf("%g %g %g %g\n", c[6].x, c[6].y, c[6].z, c[6].w);
+printf("%g %g %g %g\n", c[7].x, c[7].y, c[7].z, c[7].w);
 printf("\n\n");
 */
 	return ndir;
 }
 
 void
-xtcpUploadStdLights8(xtcStdMaterial *m, uint32 colsel)
+xtcpUploadStdLights8(xtcStdMaterial *m, uint32 colsel, uint32 *procs)
 {
-	xtcRGBA *c, *ambLt;
+	Vec4 *c, *ambLt;
 	uint128 lightDirs[8];
-	xtcRGBA D[8];
-	xtcRGBA A = { 0.0f, 0.0f, 0.0f, 0.0f };
-	xtcRGBA B = { 0.0f, 0.0f, 0.0f, 0.0f };
+	Vec4 D[8];
+	Vec4 A = { 0.0f, 0.0f, 0.0f, 0.0f };
+	Vec4 B = { 0.0f, 0.0f, 0.0f, 0.0f };
 
 	ambLt = &xtcState.ambient;
 	int ndir = getLightBlock8(lightDirs, D);
 	if(colsel & XTC_EMISSIVE)
-		B.r = B.g = B.b = B.a = 1.0f;
+		B.x = B.y = B.z = B.w = 1.0f;
 	else
-		A = m->emissive;
+		A = v4scale(255.0f, m->emissive);
 	if(colsel & XTC_AMBIENT) {
-		B.r += ambLt->r/255.0f;
-		B.g += ambLt->g/255.0f;
-		B.b += ambLt->b/255.0f;
-		B.a += ambLt->a/255.0f;
+		B.x += ambLt->x;
+		B.y += ambLt->y;
+		B.z += ambLt->z;
+		B.w += ambLt->w;
 	} else {
-		A.r += ambLt->r * m->ambient.r;
-		A.g += ambLt->g * m->ambient.g;
-		A.b += ambLt->b * m->ambient.b;
-		A.a += ambLt->a * m->ambient.a;
+		A.x += 255.0f*ambLt->x*m->ambient.x;
+		A.y += 255.0f*ambLt->y*m->ambient.y;
+		A.z += 255.0f*ambLt->z*m->ambient.z;
+		A.w += 255.0f*ambLt->w*m->ambient.w;
 	}
 	if(!(colsel & XTC_DIFFUSE))
 		for(int i = 0; i < 8; i++) {
-			D[i].r *= m->diffuse.r;
-			D[i].g *= m->diffuse.g;
-			D[i].b *= m->diffuse.b;
-			D[i].a *= m->diffuse.a;
+			D[i].x *= m->diffuse.x;
+			D[i].y *= m->diffuse.y;
+			D[i].z *= m->diffuse.z;
+			D[i].w *= m->diffuse.w;
 		}
 
-	uint32 *sel = (uint32*)&A.a;
+	uint32 *sel = (uint32*)&A.w;
 	if(ndir == 0)
-		*sel = xtcStdLightProcs[1]>>3;	// no directionals
+		*sel = procs[1]>>3;	// no directionals
 	else if(colsel & XTC_DIFFUSE)
-		*sel = xtcStdLightProcs[3]>>3;	// no 8-light code yet
+		*sel = procs[3]>>3;	// no 8-light code yet
 	else
-		*sel = xtcStdLightProcs[ndir>4 ? 4 : 2]>>3;
+		*sel = procs[ndir>4 ? 4 : 2]>>3;
 
 	mdmaList *list = xtcState.list;
 
@@ -146,28 +146,30 @@ xtcpUploadStdLights8(xtcStdMaterial *m, uint32 colsel)
 //		mdmaAddF(list, 1.0f, 1.0f, 1.0f, 1.0f);			// vertFactor
 //		mdmaAddF(list, 0.3f, 0.3f, 0.3f, 1.0f);			// vertFactor
 //		mdmaAddF(list, 0.0f, 0.0f, 0.0f, 1.0f);			// vertFactor
-		mdmaAddF(list, B.r, B.g, B.b, B.a);			// vertFactor
+		mdmaAddF(list, B.x, B.y, B.z, B.w);			// vertFactor
 
 		mdmaAdd(list, lightDirs[0]);
 		mdmaAdd(list, lightDirs[1]);
 		mdmaAdd(list, lightDirs[2]);
-		mdmaAddF(list, A.r, A.g, A.b, A.a);
-		mdmaAddF(list, D[0].r, D[0].g, D[0].b, D[0].a);
-		mdmaAddF(list, D[1].r, D[1].g, D[1].b, D[1].a);
-		mdmaAddF(list, D[2].r, D[2].g, D[2].b, D[2].a);
-		mdmaAddF(list, D[3].r, D[3].g, D[3].b, D[3].a);
+		mdmaAddF(list, A.x, A.y, A.z, A.w);
+		mdmaAddF(list, D[0].x, D[0].y, D[0].z, D[0].w);
+		mdmaAddF(list, D[1].x, D[1].y, D[1].z, D[1].w);
+		mdmaAddF(list, D[2].x, D[2].y, D[2].z, D[2].w);
+		mdmaAddF(list, D[3].x, D[3].y, D[3].z, D[3].w);
 		mdmaAdd(list, lightDirs[4]);
 		mdmaAdd(list, lightDirs[5]);
 		mdmaAdd(list, lightDirs[6]);
 		mdmaAddF(list, 0.0f, 0.0f, 0.0f, 0.0f);
-		mdmaAddF(list, D[4].r, D[4].g, D[4].b, D[4].a);
-		mdmaAddF(list, D[5].r, D[5].g, D[5].b, D[5].a);
-		mdmaAddF(list, D[6].r, D[6].g, D[6].b, D[6].a);
-		mdmaAddF(list, D[7].r, D[7].g, D[7].b, D[7].a);
+		mdmaAddF(list, D[4].x, D[4].y, D[4].z, D[4].w);
+		mdmaAddF(list, D[5].x, D[5].y, D[5].z, D[5].w);
+		mdmaAddF(list, D[6].x, D[6].y, D[6].z, D[6].w);
+		mdmaAddF(list, D[7].x, D[7].y, D[7].z, D[7].w);
 
 		mdmaEndUnpack(list);
 	mdmaCloseTag(list);
 }
+
+extern xtcMicrocode xtcCodeStd, xtcCodeStdSkin;
 
 static mdmaTag *
 upload(xtcPipeline *pipe, xtcPrimType primtype)
@@ -177,7 +179,18 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	xtcStdMaterial *m = &xtcState.stdMaterial;
 
 	xtcpCombineMatrix();
-	xtcpUploadStdLights8(m, xtcState.stdColSel);
+	// the light routines live at different addresses in each program
+	xtcpUploadStdLights8(m, xtcState.stdColSel,
+		pipe->code == &xtcCodeStdSkin ? xtcStdSkinLightProcs : xtcStdLightProcs);
+
+	// the skin pipe's bone matrices, ref'd straight from the state:
+	// once per draw, the batches never touch that part of VU memory
+	if(pipe->code == &xtcCodeStdSkin && xtcState.numBoneMatrices > 0) {
+		int n = 4*xtcState.numBoneMatrices;
+		mdmaRef(l, xtcState.boneMatrices, n);
+			mdmaVifStCycl(l, 4,4, 0);
+			mdmaVifUnpack(l, vuBoneMatrices, n, UNPACK_V4_32, 0);
+	}
 
 	// TODO: want TME bit more elegantly
 	float *scl = (float*)&xtcState.colorScale[(xtcgRegs.prmode>>4)&1];
@@ -234,10 +247,16 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	return tag;
 }
 
-extern xtcMicrocode xtcCodeStd;
-
 static xtcPipeline pipe = {
 	upload,
 	&xtcCodeStd,
 };
 xtcPipeline *stdPipeline = &pipe;
+
+// the same upload with the skin microcode; the bone matrices are not
+// uploaded yet, the code doesn't read them yet either
+static xtcPipeline skinPipe = {
+	upload,
+	&xtcCodeStdSkin,
+};
+xtcPipeline *skinPipeline = &skinPipe;

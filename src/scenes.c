@@ -1,8 +1,8 @@
-#include "xtc.h"
-#include "m.h"
+#include "xtci.h"
 #include "joy.h"
 #include "fio.h"
 #include "scenes.h"
+#include "xmodel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,13 +83,8 @@ scenesInit(void)
 static void
 setWorld(float x, float y, float z, float s)
 {
-	float world[16] = {
-		s, 0.0f, 0.0f, 0.0f,
-		0.0f, s, 0.0f, 0.0f,
-		0.0f, 0.0f, s, 0.0f,
-		x, y, z, 1.0f
-	};
-	xtcSetWorldMatrix(world);
+	Mat4 world = m4mul(m4translate(x, y, z), m4scale(s, s, s));
+	xtcSetWorldMatrix(&world);
 }
 
 void
@@ -97,27 +92,8 @@ rotateWorld(void)
 {
 	static float t = 0.0f;
 	float speed = 1.0f;
-	float world[16];
-	world[0] = cosf(t*speed);
-	world[1] = sinf(t*speed);
-	world[2] = 0.0f;
-	world[3] = 0.0f;
-
-	world[4] = -sinf(t*speed);
-	world[5] = cosf(t*speed);
-	world[6] = 0.0f;
-	world[7] = 0.0f;
-
-	world[8] = 0.0f;
-	world[9] = 0.0f;
-	world[10] = 1.0f;
-	world[11] = 0.0f;
-
-	world[12] = 0.0f;
-	world[13] = 0.0f;
-	world[14] = 0.0f;
-	world[15] = 1.0f;
-	xtcSetWorldMatrix(world);
+	Mat4 world = m4rotZ(t*speed);
+	xtcSetWorldMatrix(&world);
 
 	t += 0.01f;
 }
@@ -127,27 +103,8 @@ moveInCircle(float r)
 {
 	static float t = 0.0f;
 	float speed = 1.0f;
-	float world[16];
-	world[0] = 1.0f;
-	world[1] = 0.0f;
-	world[2] = 0.0f;
-	world[3] = 0.0f;
-
-	world[4] = 0.0f;
-	world[5] = 1.0f;
-	world[6] = 0.0f;
-	world[7] = 0.0f;
-
-	world[8] = 0.0f;
-	world[9] = 0.0f;
-	world[10] = 1.0f;
-	world[11] = 0.0f;
-
-	world[12] = r*cosf(t*speed);
-	world[13] = r*sinf(t*speed);
-	world[14] = 0.0f;
-	world[15] = 1.0f;
-	xtcSetWorldMatrix(world);
+	Mat4 world = m4translate(r*cosf(t*speed), r*sinf(t*speed), 0.0f);
+	xtcSetWorldMatrix(&world);
 
 	t += 0.01f;
 }
@@ -208,13 +165,13 @@ texRect2d(float x, float y, float w, float h)
 	float y1 = y + 0.5f*h;
 
 	xtcBegin(XTC_TRISTRIP);
-		xtcTexCoord(0.0f, 1.0f, 1.0f);
+		xtcTexCoord3(0.0f, 1.0f, 1.0f);
 		xtcVertex(x0, y0, 0.0f);
-		xtcTexCoord(1.0f, 1.0f, 1.0f);
+		xtcTexCoord3(1.0f, 1.0f, 1.0f);
 		xtcVertex(x1, y0, 0.0f);
-		xtcTexCoord(0.0f, 0.0f, 1.0f);
+		xtcTexCoord3(0.0f, 0.0f, 1.0f);
 		xtcVertex(x0, y1, 0.0f);
-		xtcTexCoord(1.0f, 0.0f, 1.0f);
+		xtcTexCoord3(1.0f, 0.0f, 1.0f);
 		xtcVertex(x1, y1, 0.0f);
 	xtcEnd();
 }
@@ -276,7 +233,7 @@ drawCube(void)
 	xtcBegin(XTC_TRILIST);
 		for(uint32 i = 0; i < nelem(indices); i++) {
 			int idx = indices[i];
-			xtcTexCoord(st[i%6].s, st[i%6].t, 1.0f);
+			xtcTexCoord3(st[i%6].s, st[i%6].t, 1.0f);
 			xtcColor(verts[idx].r, verts[idx].g, verts[idx].b, verts[idx].a);
 			xtcVertex(verts[idx].x, verts[idx].y, verts[idx].z);
 		}
@@ -698,14 +655,10 @@ sceneTown(void)
 		xtcPrimList *pl = townPl[in->asset];
 		if(pl == nil)
 			continue;
-		float c = cosf(in->rotz), s = sinf(in->rotz), k = in->scale;
-		float world[16] = {
-			 k*c, k*s, 0.0f, 0.0f,
-			-k*s, k*c, 0.0f, 0.0f,
-			0.0f, 0.0f,    k, 0.0f,
-			in->x, in->y, in->z, 1.0f
-		};
-		xtcSetWorldMatrix(world);
+		float k = in->scale;
+		Mat4 world = m4mul(m4translate(in->x, in->y, in->z),
+			m4mul(m4rotZ(in->rotz), m4scale(k, k, k)));
+		xtcSetWorldMatrix(&world);
 		xtcPrimListDraw(pl);
 	}
 }
@@ -720,13 +673,13 @@ texQuad(xtcTexture *r, float x, float z)
 	xtcSetTexture(r);
 	xtcBegin(XTC_TRISTRIP);
 		xtcColor(255, 255, 255, 255);
-		xtcTexCoord(0.0f, 1.0f, 1.0f);
+		xtcTexCoord3(0.0f, 1.0f, 1.0f);
 		xtcVertex(x-0.9f, 0.0f, z-0.9f);
-		xtcTexCoord(1.0f, 1.0f, 1.0f);
+		xtcTexCoord3(1.0f, 1.0f, 1.0f);
 		xtcVertex(x+0.9f, 0.0f, z-0.9f);
-		xtcTexCoord(0.0f, 0.0f, 1.0f);
+		xtcTexCoord3(0.0f, 0.0f, 1.0f);
 		xtcVertex(x-0.9f, 0.0f, z+0.9f);
-		xtcTexCoord(1.0f, 0.0f, 1.0f);
+		xtcTexCoord3(1.0f, 0.0f, 1.0f);
 		xtcVertex(x+0.9f, 0.0f, z+0.9f);
 	xtcEnd();
 }
@@ -897,27 +850,16 @@ setLights(void)
 	static float t = 0.0f;
 	xtcLight l;
 
-	xtcSetAmbient(32, 32, 32);
+	xtcSetAmbient(32/255.0f, 32/255.0f, 32/255.0f);
 
 	l.enabled = 1;
 	l.type = XTC_LIGHT_DIRECT;
-	l.color.r = 140.0f;
-	l.color.g = 140.0f;
-	l.color.b = 130.0f;
-	l.color.a = 255.0f;
-	l.direction.x = -cosf(t);
-	l.direction.y = -sinf(t);
-	l.direction.z = -0.7f;
-	normalize((float*)&l.direction, (float*)&l.direction);
+	l.color = vec4(140/255.0f, 140/255.0f, 130/255.0f, 1.0f);
+	l.direction = v3normalized(vec3(-cosf(t), -sinf(t), -0.7f));
 	xtcSetLight(0, &l);
 
-	l.color.r = 0.0f;
-	l.color.g = 40.0f;
-	l.color.b = 120.0f;
-	l.direction.x = 1.0f;
-	l.direction.y = -1.0f;
-	l.direction.z = 1.0f;
-	normalize((float*)&l.direction, (float*)&l.direction);
+	l.color = vec4(0.0f, 40/255.0f, 120/255.0f, 1.0f);
+	l.direction = v3normalized(vec3(1.0f, -1.0f, 1.0f));
 	xtcSetLight(1, &l);
 
 	t += 0.01f;
@@ -965,12 +907,11 @@ static int useVertexColors = 1;
 static xtcPrimList *monkey, *monkeyPlain;
 
 /* where light i shines from: round the circle, alternately above and below */
-static void
-lightFrom(int i, float out[3])
+static Vec3
+lightFrom(int i)
 {
 	float a = TAU*i/NLIGHTS;
-	float from[3] = { cosf(a), sinf(a), (i & 1) ? -0.5f : 0.8f };
-	normalize(out, from);
+	return v3normalized(vec3(cosf(a), sinf(a), (i & 1) ? -0.5f : 0.8f));
 }
 
 static void
@@ -996,27 +937,24 @@ static void
 setDemoLights(void)
 {
 	xtcLight l;
-	float from[3];
+	Vec3 from;
 	int i;
 
 	if(ambientOn)
-		xtcSetAmbient(30, 30, 30);
+		xtcSetAmbient(30/255.0f, 30/255.0f, 30/255.0f);
 //		xtcSetAmbient(150, 30, 30);
 	else
-		xtcSetAmbient(0, 0, 0);
+		xtcSetAmbient(0.0f, 0.0f, 0.0f);
 
 	memset(&l, 0, sizeof(l));
 	l.type = XTC_LIGHT_DIRECT;
-	l.color.a = 255.0f;
 	for(i = 0; i < NLIGHTS; i++) {
 		l.enabled = lightOn[i];
-		l.color.r = 255.0f*lightIntensity*lightColors[i][0];
-		l.color.g = 255.0f*lightIntensity*lightColors[i][1];
-		l.color.b = 255.0f*lightIntensity*lightColors[i][2];
-		lightFrom(i, from);
-		l.direction.x = -from[0];
-		l.direction.y = -from[1];
-		l.direction.z = -from[2];
+		l.color = vec4(lightIntensity*lightColors[i][0],
+			lightIntensity*lightColors[i][1],
+			lightIntensity*lightColors[i][2], 1.0f);
+		from = lightFrom(i);
+		l.direction = v3neg(from);
 		xtcSetLight(i, &l);
 	}
 }
@@ -1027,7 +965,7 @@ static void
 drawLightStubs(void)
 {
 	static int frame;
-	float from[3];
+	Vec3 from;
 	int i, r, g, b;
 
 	frame++;
@@ -1039,10 +977,10 @@ drawLightStubs(void)
 		b = 255*lightColors[i][2];
 		if(!lightOn[i]) { r /= 4; g /= 4; b /= 4; }
 		if(i == curLight && (frame & 16)) r = g = b = 255;
-		lightFrom(i, from);
+		from = lightFrom(i);
 		xtcColor(r, g, b, 255);
-		xtcVertex(1.3f*from[0], 1.3f*from[1], 1.3f*from[2]);
-		xtcVertex(1.9f*from[0], 1.9f*from[1], 1.9f*from[2]);
+		xtcVertex(1.3f*from.x, 1.3f*from.y, 1.3f*from.z);
+		xtcVertex(1.9f*from.x, 1.9f*from.y, 1.9f*from.z);
 	}
 	xtcEnd();
 }
@@ -1071,7 +1009,7 @@ drawMonkey(void)
 	}
 
 	/* plain white RW material: the lights are the whole look */
-	m.color.r = m.color.g = m.color.b = m.color.a = 1.0f;
+	m.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
 	m.ambient = 1.0f;
 	m.diffuse = 1.0f;
 	m.specular = 0.0f;
@@ -1083,7 +1021,7 @@ drawMonkey(void)
 static void
 sceneLights(void)
 {
-	float world[16], c, s;
+	Mat4 world;
 
 	lightsControls();
 	xtcEnable(XTC_CLIPPING);
@@ -1094,14 +1032,8 @@ sceneLights(void)
 	/* the monkey turns about z and is tipped a little, the lights stay */
 	if(monkeySpin)
 		monkeyAngle += 0.4f/60.0f;
-	c = cosf(monkeyAngle);
-	s = sinf(monkeyAngle);
-	float rz[16] = { c, s, 0, 0,  -s, c, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 };
-	c = cosf(0.4f);
-	s = sinf(0.4f);
-	float rx[16] = { 1, 0, 0, 0,  0, c, s, 0,  0, -s, c, 0,  0, 0, 0, 1 };
-	matmul(world, rz, rx);
-	xtcSetWorldMatrix(world);
+	world = m4mul(m4rotZ(monkeyAngle), m4rotX(0.4f));
+	xtcSetWorldMatrix(&world);
 	drawMonkey();
 }
 
@@ -1120,17 +1052,17 @@ extern uint128 monkey_std_ref[];
 static void
 sceneDsm(void)
 {
-	static xtcRGBA black = { 0.0f, 0.0f, 0.0f, 1.0f };
-	static xtcRGBA white = { 1.0f, 1.0f, 1.0f, 1.0f };
+	static Vec4 black = { 0.0f, 0.0f, 0.0f, 1.0f };
+	static Vec4 white = { 1.0f, 1.0f, 1.0f, 1.0f };
 	xtcStdMaterial mat = {
-		{ 1.0f, 1.0f, 1.0f, 1.0f },	// emissive
+		{ 0.0f, 0.0f, 0.0f, 1.0f },	// emissive (the upload scales it to 0..255 now, white would be white)
 		{ 1.0f, 1.0f, 1.0f, 1.0f },	// ambient
 		{ 1.0f, 1.0f, 1.0f, 1.0f },	// diffuse
 		{ 0.0f, 0.0f, 0.0f, 10.0f },	// specular
 	};
 
 	static xtcPrimList inl, ref;
-	float rz[16], rx[16], world[16], c, s;
+	Mat4 world;
 
 	if(inl.list == nil) {
 		inl.pipe = stdPipeline;
@@ -1158,23 +1090,306 @@ xtcSetColorMaterial(XTC_AMBIENT | XTC_DIFFUSE);
 
 	if(monkeySpin)
 		monkeyAngle += 0.4f/60.0f;
-	c = cosf(monkeyAngle);
-	s = sinf(monkeyAngle);
-	float rzv[16] = { c, s, 0, 0,  -s, c, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 };
-	c = cosf(0.4f);
-	s = sinf(0.4f);
-	float rxv[16] = { 1, 0, 0, 0,  0, c, s, 0,  0, -s, c, 0,  0, 0, 0, 1 };
-	memcpy(rz, rzv, sizeof(rz));
-	memcpy(rx, rxv, sizeof(rx));
-	matmul(world, rz, rx);
+	world = m4mul(m4rotZ(monkeyAngle), m4rotX(0.4f));
 
-	world[12] = -1.3f;
-	xtcSetWorldMatrix(world);
-	xtcPrimListDraw(&inl);
+	world.w.x = -1.3f;
+	xtcSetWorldMatrix(&world);
+//	xtcPrimListDraw(&inl);
 
-	world[12] = 1.3f;
-	xtcSetWorldMatrix(world);
+	world.w.x = 1.3f;
+	xtcSetWorldMatrix(&world);
 	xtcPrimListDraw(&ref);
+}
+
+/*
+ * Scene: skin -- the monkey through the skin pipeline.  Five attributes
+ * per vertex; the skin data is a dummy (bone 0, weight 1) and the
+ * microcode only compacts it away for now, so this should look exactly
+ * like the lights scene with vertex colours on.  Same controls.
+ */
+
+static xtcPrimList *skinMonkey;
+
+// left: nothing but the vertex colours (checks positions and colours)
+static const xtcStdMaterial colorsOnly = {
+	{ 0.0f, 0.0f, 0.0f, 1.0f },	// emissive
+	{ 0.0f, 0.0f, 0.0f, 1.0f },	// ambient
+	{ 0.0f, 0.0f, 0.0f, 1.0f },	// diffuse
+	{ 0.0f, 0.0f, 0.0f, 0.0f },	// specular
+};
+// right: white, lit (checks the normals)
+static const xtcStdMaterial lit = {
+	{ 0.0f, 0.0f, 0.0f, 1.0f },	// emissive
+	{ 1.0f, 1.0f, 1.0f, 1.0f },	// ambient
+	{ 1.0f, 1.0f, 1.0f, 1.0f },	// diffuse
+	{ 0.0f, 0.0f, 0.0f, 0.0f },	// specular
+};
+
+static void
+sceneSkin(void)
+{
+	Mat4 world;
+
+	if(skinMonkey == nil) {
+		skinMonkey = xtcCreatePrimList();
+		xtcStartList(skinMonkey);
+		xtcSetPipeline(skinPipeline);
+		xtcIndices(0, 0, 0, 0);
+		xtcWeights(1.0f, 0.0f, 0.0f, 0.0f);
+		drawObj(monkey_verts, monkey_tex, monkey_normals, monkey_colors,
+			monkey_faces, nelem(monkey_faces), 0.75f);
+		xtcEndList();
+	}
+
+	lightsControls();
+	xtcEnable(XTC_CLIPPING);
+	drawAxes();
+	drawLightStubs();
+	setDemoLights();
+
+	if(monkeySpin)
+		monkeyAngle += 0.4f/60.0f;
+	world = m4mul(m4rotZ(monkeyAngle), m4rotX(0.4f));
+
+	world.w.x = -1.3f;
+	xtcSetWorldMatrix(&world);
+	xtcSetStdMaterial(&colorsOnly);
+	xtcSetColorMaterial(XTC_EMISSIVE);
+	xtcPrimListDraw(skinMonkey);
+
+	world.w.x = 1.3f;
+	xtcSetWorldMatrix(&world);
+	xtcSetStdMaterial(&lit);
+	xtcSetColorMaterial(0);
+	xtcPrimListDraw(skinMonkey);
+}
+
+/*
+ * Scene: tube -- the skinning test subject.  A tube along z with
+ * TUBE_BONES bones spaced along it; every vertex is weighted between the
+ * two bones it sits between and coloured like its weights.  The joints
+ * wave, so a working skin pipe bends the tube into a snake; until then
+ * it stays straight.  src_gl/skin.fnl draws the same tube on GL, that
+ * is the picture to aim for.  Left: vertex colours only, right: lit.
+ * Same controls as the lights scene; square stops the waving.
+ */
+
+#define TUBE_BONES 6
+#define TUBE_RINGS 5		/* rings per bone segment */
+#define TUBE_SIDES 16
+#define TUBE_LEN 3.0f
+#define TUBE_RADIUS 0.4f
+#define TUBE_SPACING (TUBE_LEN/(TUBE_BONES-1))
+
+static xtcPrimList *tube;
+static float tubeTime;
+
+static const uint8 tubeColors[TUBE_BONES][3] = {
+	{ 255, 60, 60 }, { 255, 200, 40 }, { 60, 220, 60 },
+	{ 60, 200, 255 }, { 90, 90, 255 }, { 240, 80, 240 }
+};
+
+static void
+tubeVertex(int ring, int side)
+{
+	float t = (float)ring/TUBE_RINGS;	/* position in bone units */
+	int b = (int)t;
+	if(b > TUBE_BONES-2) b = TUBE_BONES-2;
+	t -= b;					/* 0..1 from bone b to b+1 */
+	float z = -TUBE_LEN/2 + (b + t)*TUBE_SPACING;
+	float phi = TAU*side/TUBE_SIDES;
+	float c = cosf(phi), s = sinf(phi);
+
+	xtcColor((uint32)(tubeColors[b][0]*(1.0f-t) + tubeColors[b+1][0]*t),
+	         (uint32)(tubeColors[b][1]*(1.0f-t) + tubeColors[b+1][1]*t),
+	         (uint32)(tubeColors[b][2]*(1.0f-t) + tubeColors[b+1][2]*t), 255);
+	xtcNormal(c, s, 0.0f);
+	xtcTexCoord((float)side/TUBE_SIDES, t);
+	xtcIndices(b, b+1, 0, 0);
+	xtcWeights(1.0f-t, t, 0.0f, 0.0f);
+	xtcVertex(TUBE_RADIUS*c, TUBE_RADIUS*s, z);
+}
+
+static void
+buildTube(void)
+{
+	int nrings = (TUBE_BONES-1)*TUBE_RINGS;
+
+	tube = xtcCreatePrimList();
+	xtcStartList(tube);
+	xtcSetPipeline(skinPipeline);
+	xtcBegin(XTC_TRILIST);
+	for(int r = 0; r < nrings; r++)
+		for(int s = 0; s < TUBE_SIDES; s++) {
+			int s1 = (s+1) % TUBE_SIDES;
+			tubeVertex(r, s); tubeVertex(r+1, s); tubeVertex(r+1, s1);
+			tubeVertex(r, s); tubeVertex(r+1, s1); tubeVertex(r, s1);
+		}
+	xtcEnd();
+	xtcEndList();
+}
+
+/* the skinning matrices: every joint bends a little, in alternating
+ * planes, and the bones chain up from the bottom.  the bind pose is
+ * bone b standing at its pivot, so the skinning matrix is the animated
+ * frame times the translation back from the pivot */
+static void
+tubeBones(float time, Mat4 *bones)
+{
+	Mat4 m = m4translate(0.0f, 0.0f, -TUBE_LEN/2);
+	for(int b = 0; b < TUBE_BONES; b++) {
+		float pivot = -TUBE_LEN/2 + b*TUBE_SPACING;
+		float a = 0.3f*sinf(2.0f*time + 0.9f*b);
+		if(b > 0)
+			m = m4mul(m, m4translate(0.0f, 0.0f, TUBE_SPACING));
+		m = m4mul(m, (b & 1) ? m4rotY(a) : m4rotX(a));
+		bones[b] = m4mul(m, m4translate(0.0f, 0.0f, -pivot));
+	}
+}
+
+static void
+sceneTube(void)
+{
+	Mat4 bones[TUBE_BONES], world;
+
+	if(tube == nil)
+		buildTube();
+
+	lightsControls();
+	xtcEnable(XTC_CLIPPING);
+	drawAxes();
+	drawLightStubs();
+	setDemoLights();
+
+	if(monkeySpin)
+		tubeTime += 1.0f/60.0f;
+	tubeBones(tubeTime, bones);
+	xtcSetBoneMatrices(bones, TUBE_BONES);
+
+	world = m4translate(-1.3f, 0.0f, 0.0f);
+	xtcSetWorldMatrix(&world);
+	xtcSetStdMaterial(&colorsOnly);
+	xtcSetColorMaterial(XTC_EMISSIVE);
+	xtcPrimListDraw(tube);
+
+	world = m4translate(1.3f, 0.0f, 0.0f);
+	xtcSetWorldMatrix(&world);
+	xtcSetStdMaterial(&lit);
+	xtcSetColorMaterial(0);
+	xtcPrimListDraw(tube);
+}
+
+/*
+ * Scene: fox -- the fox from the GL sketch, skinned on the VU.  Loads
+ * samples/fox/fox.xm and fox_ps2.xan over host: on first use (the GL
+ * viewer's -save writes them, tools/xancut.py cut the clips down), the
+ * texture from fox/textures_ps2 (palettised for the GS).  dpad
+ * left/right cycles the clips, cross pauses, square spins the fox,
+ * lights as in the lights scene.
+ */
+
+static xModel *fox;
+static xAnimList *foxAnims;
+static xAnimPlayer *foxPlayer;
+static int foxLoaded, foxAnim, foxSpin;
+static int foxPlaying = 1;
+static float foxAngle;
+static Vec3 foxCenter;
+
+/* a portrait light rig: a warm key from the front right and above, a
+ * cool fill from behind on the left, the other slots off */
+static void
+setFoxLights(void)
+{
+	xtcLight l;
+	int i;
+
+	xtcSetAmbient(0.22f, 0.22f, 0.25f);
+	memset(&l, 0, sizeof(l));
+	l.type = XTC_LIGHT_DIRECT;
+	l.enabled = 1;
+	l.color = vec4(0.95f, 0.88f, 0.75f, 1.0f);
+	l.direction = v3normalized(vec3(-1.0f, 1.2f, -1.4f));
+	xtcSetLight(0, &l);
+	l.color = vec4(0.30f, 0.36f, 0.50f, 1.0f);
+	l.direction = v3normalized(vec3(1.0f, -0.6f, -0.3f));
+	xtcSetLight(1, &l);
+	l.enabled = 0;
+	for(i = 2; i < 8; i++)
+		xtcSetLight(i, &l);
+}
+
+static void
+foxSelectAnim(int n)
+{
+	if(foxPlayer == nil || foxAnims->numAnims == 0)
+		return;
+	foxAnim = (n + foxAnims->numAnims) % foxAnims->numAnims;
+	xAnimPlayerSetAnim(foxPlayer, &foxAnims->anims[foxAnim]);
+	printf("fox: %s\n", foxAnims->anims[foxAnim].name);
+}
+
+static void
+loadFox(void)
+{
+	Vec3 center;
+	float radius;
+
+	foxLoaded = 1;
+	texpath = "host:./samples/fox/textures_ps2";
+	fox = loadXModel("host:./samples/fox/fox.xm");
+	if(fox == nil) {
+		printf("fox: no model\n");
+		return;
+	}
+	buildXModel(fox);
+	xModelBoundingSphere(fox, &center, &radius);
+	/* a three quarter view from a little above, the fox centred */
+	foxCenter = center;
+	camDist = 2.2f*radius;
+	camPhi = 0.25f;
+	foxAngle = 1.3f;
+	printf("fox: %d meshes, %d bones, radius %g\n", fox->numMeshes,
+		fox->skel ? fox->skel->numBones : 0, radius);
+
+	foxAnims = loadXAnimList("host:./samples/fox/fox_ps2.xan");
+	if(foxAnims) {
+		printf("fox: %d animations\n", foxAnims->numAnims);
+		foxPlayer = xAnimPlayerCreate(fox);
+		foxSelectAnim(0);
+	}
+}
+
+static void
+sceneFox(void)
+{
+	Mat4 world;
+
+	if(!foxLoaded)
+		loadFox();
+	if(fox == nil)
+		return;
+
+	if(joy.press & JOY_RIGHT) foxSelectAnim(foxAnim+1);
+	if(joy.press & JOY_LEFT) foxSelectAnim(foxAnim-1);
+	if(joy.press & JOY_CROSS) foxPlaying = !foxPlaying;
+	if(joy.press & JOY_SQUARE) foxSpin = !foxSpin;
+
+	xtcEnable(XTC_CLIPPING);
+	xtcEnable(XTC_TEXTURE);
+	xtcTexFunc(XTC_RGBA, XTC_MODULATE);
+	setFoxLights();
+
+	if(foxPlayer) {
+		if(foxPlaying)
+			xAnimPlayerAddTime(foxPlayer, 1.0f/60.0f);
+		xAnimPlayerApply(foxPlayer);
+	}
+	if(foxSpin)
+		foxAngle += 0.3f/60.0f;
+	world = m4mul(m4rotZ(foxAngle), m4translate(-foxCenter.x, -foxCenter.y, -foxCenter.z));
+	xtcSetWorldMatrix(&world);
+	xModelDraw(fox, 0);
 }
 
 /*
@@ -1218,7 +1433,7 @@ drawLitSphere(void)
 			float z1 = cosf(theta1);
 			xtcColor(0, 0, 0, 255);
 			xtcNormal(x1, y1, z1);
-			xtcTexCoord(s, theta1/PI, 1.0f);
+			xtcTexCoord3(s, theta1/PI, 1.0f);
 			xtcVertex(x1, y1, z1);
 
 			float x2 = sinf(theta2)*x;
@@ -1226,7 +1441,7 @@ drawLitSphere(void)
 			float z2 = cosf(theta2);
 			xtcColor(0, 0, 0, 255);
 			xtcNormal(x2, y2, z2);
-			xtcTexCoord(s, theta2/PI, 1.0f);
+			xtcTexCoord3(s, theta2/PI, 1.0f);
 			xtcVertex(x2, y2, z2);
 		}
 	}
@@ -1262,19 +1477,19 @@ drawIm2D(void)
 
 	xtcBegin(XTC_TRILIST);
 		xtcColor(0, 128, 255, 255);
-		xtcTexCoord(0.0f, 0.0f, 1.0f);
+		xtcTexCoord3(0.0f, 0.0f, 1.0f);
 		xtcVertex(0.0f, 0.0f, 0.0f);
-		xtcTexCoord(0.0f, 1.0f, 1.0f);
+		xtcTexCoord3(0.0f, 1.0f, 1.0f);
 		xtcVertex(0.0f, 0.9f, 0.0f);
-		xtcTexCoord(1.0f, 1.0f, 1.0f);
+		xtcTexCoord3(1.0f, 1.0f, 1.0f);
 		xtcVertex(0.9f, 0.9f, 0.0f);
 
 		xtcColor(255, 128, 0, 255);
-		xtcTexCoord(0.0f, 0.0f, 1.0f);
+		xtcTexCoord3(0.0f, 0.0f, 1.0f);
 		xtcVertex(0.0f, 0.0f, 0.0f);
-		xtcTexCoord(1.0f, 0.0f, 1.0f);
+		xtcTexCoord3(1.0f, 0.0f, 1.0f);
 		xtcVertex(0.9f, 0.0f, 0.0f);
-		xtcTexCoord(1.0f, 1.0f, 1.0f);
+		xtcTexCoord3(1.0f, 1.0f, 1.0f);
 		xtcVertex(0.9f, 0.9f, 0.0f);
 	xtcEnd();
 }
@@ -1518,6 +1733,9 @@ Scene scenes[] = {
 	{ "lit", sceneLit },
 	{ "lights", sceneLights },
 	{ "dsm", sceneDsm },
+	{ "skin", sceneSkin },
+	{ "tube", sceneTube },
+	{ "fox", sceneFox },
 	{ "littex", sceneLitTex },
 	{ "im2d", sceneIm2d },
 	{ "blend", sceneBlend },

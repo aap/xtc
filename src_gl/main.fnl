@@ -28,7 +28,7 @@
             :axes true :spin false})
 
 (fn parse-args []
-  (let [opts {:model "../fox/fox.glb" :frames 3}]
+  (let [opts {:model "../samples/fox/fox.glb" :frames 3}]
     (var i 1)
     (while (<= i (length arg))
       (let [a (. arg i)]
@@ -50,7 +50,8 @@
 (fn draw-axes [s]
   (xtcSetPipeline defaultPipeline)
   (xtcSetTexture nil)
-  (xtcSetMaterial material)
+  (xtcSetStdMaterial material)
+  (xtcSetColorMaterial _G.XTC_EMISSIVE)
 
   (xtcBegin _G.XTC_LINELIST)
     (xtcColor 255 0 0 255)
@@ -102,8 +103,7 @@
   (player:setAnim (anims:get i)))
 
 (fn init []
-  (let [m (xtcMaterial)]
-    (set m.colorSelector (vec4 0 0 0 1))
+  (let [m (xtcStdMaterial)]
     (set m.ambient (vec4 0 0 0 1))
     (set m.diffuse (vec4 0 0 0 1))
     (set material m))
@@ -148,7 +148,7 @@
       (set cam.target center)
       (set cam.up (vec3 0 0 1))))
 
-  (xtcSetAmbient 100 100 100)
+  (xtcSetAmbient (/ 100 255) (/ 100 255) (/ 100 255))
   (let [l (xtcLight)]
     (set l.enabled 1)
     (set l.type XTC_LIGHT_DIRECT)
@@ -193,7 +193,8 @@
 
         (xtcSetPipeline defaultPipeline)
         (xtcSetTexture nil)
-        (xtcSetMaterial material)
+        (xtcSetStdMaterial material)
+  (xtcSetColorMaterial _G.XTC_EMISSIVE)
         (xtcBegin _G.XTC_LINELIST)
           (xtcColor 255 255 255 255)
           (xtcVertex 0 0 0)

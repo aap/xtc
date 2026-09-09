@@ -12,19 +12,26 @@ emalloc(size_t sz)
 	return p;
 }
 
-int
-readfile(const char *path, uint8 **data, uint32 *size)
+/* the text formats parse from memory, so they load the same way over
+ * stdio and over the PS2's fio */
+struct TextReader {
+	char *p, *end;
+};
+
+// fgets over memory
+static int
+readLine(TextReader *tr, char *line, int n)
 {
-	FILE *f;
-	f = fopen(path, "rb");
-	if(f == nil)
+	int i = 0;
+	if(tr->p >= tr->end)
 		return 0;
-	fseek(f, 0, SEEK_END);
-	*size = ftell(f);
-	*data = (uint8*)malloc(*size);
-	fseek(f, 0, SEEK_SET);
-	fread(*data, 1, *size, f);
-	fclose(f);
+	while(tr->p < tr->end && i < n-1) {
+		char c = *tr->p++;
+		line[i++] = c;
+		if(c == '\n')
+			break;
+	}
+	line[i] = '\0';
 	return 1;
 }
 
@@ -209,7 +216,7 @@ writeXMaterial(FILE *f, xMaterial *mat, int n)
 	fprintf(f, "\tspecular %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	color = mat->material.emissive;
 	fprintf(f, "\temissive %g %g %g %g\n", color.x, color.y, color.z, color.w);
-	fprintf(f, "\tshininess %g\n", mat->material.shininess);
+	fprintf(f, "\tcolormaterial %u\n", (unsigned)mat->colorMaterial);
 
 	if(mat->tex)
 		fprintf(f, "\tdiffusetex \"%s\"\n", mat->tex->name);
@@ -392,14 +399,17 @@ readTexture(const char *name)
 
 	tex = allocXTexture(name);
 	for(int i = 0; extensions[i]; i++) {
-		snprintf(abspath, sizeof(abspath), "%s/%s%s", texpath, name, extensions[i]);
+		// no snprintf in the PS2's libc; the path is small anyway
+		if(strlen(texpath) + strlen(name) + 8 > sizeof(abspath))
+			break;
+		sprintf(abspath, "%s/%s%s", texpath, name, extensions[i]);
 		if(readfile(abspath, &data, &size)) {
 			tex->tex = xtcTextureReadPNG(data, size);
 			free(data);
 			return tex;
 		}
 	}
-	fprintf(stderr, "warning: texture %s not found in %s\n", name, texpath);
+	printf("warning: texture %s not found in %s\n", name, texpath);
 	return tex;
 }
 
@@ -430,6 +440,7 @@ lookup(struct Cmd *tab, char *str)
 	X("specular", CMD_SPECULAR) \
 	X("emissive", CMD_EMISSIVE) \
 	X("shininess", CMD_SHININESS) \
+	X("colormaterial", CMD_COLORMATERIAL) \
 	X("diffusetex", CMD_DIFFUSETEX) \
 	X("endmaterial", CMD_ENDMATERIAL) \
 	X("mesh", CMD_MESH) \
@@ -513,9 +524,10 @@ findXNode(xNode *root, const char *name)
 	return nil;
 }
 
-xModel*
-loadXModel(FILE *file)
+static xModel*
+loadXModelText(char *text, uint32 size)
 {
+	TextReader tr = { text, text + size };
 	char line[4096];
 	char *tokens[1000];
 	int n, ntok;
@@ -531,7 +543,7 @@ loadXModel(FILE *file)
 
 	mdl = (xModel*)emalloc(sizeof(xModel));
 
-	while(fgets(line, sizeof(line), file)) {
+	while(readLine(&tr, line, sizeof(line))) {
 		ntok = tokenize(line, tokens, 1000);
 		if(ntok < 1) continue;
 		switch(lookup(cmds, tokens[0])) {
@@ -559,12 +571,11 @@ loadXModel(FILE *file)
 			} else {
 				assert(mat == nil);
 				mat = (xMaterial*)emalloc(sizeof(xMaterial));
-				mat->material.shininess = 0.0f;
 				mat->material.ambient = vec4(1.0f, 1.0f, 1.0f, 1.0f);
 				mat->material.diffuse = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-				mat->material.specular = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-				// use vertex color for emissive
-				mat->material.colorSelector = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+				mat->material.specular = vec4(1.0f, 1.0f, 1.0f, 0.0f);	// w is the power
+				// use vertex color for emissive unless the file says otherwise
+				mat->colorMaterial = XTC_EMISSIVE;
 				n = atoi(tokens[1]);
 				assert(n < mdl->numMaterials);
 				mdl->materials[n] = mat;
@@ -602,9 +613,13 @@ loadXModel(FILE *file)
 			mat->material.emissive.z = atof(tokens[3]);
 			mat->material.emissive.w = atof(tokens[4]);
 			break;
-		case CMD_SHININESS:
+		case CMD_SHININESS:	// older files; it lives in specular.w now
 			assert(mat);
-			mat->material.shininess = atof(tokens[1]);
+			mat->material.specular.w = atof(tokens[1]);
+			break;
+		case CMD_COLORMATERIAL:
+			assert(mat);
+			mat->colorMaterial = atoi(tokens[1]);
 			break;
 		case CMD_DIFFUSETEX:
 			assert(mat);
@@ -792,6 +807,22 @@ loadXModel(FILE *file)
 	return mdl;
 }
 
+xModel*
+loadXModel(const char *path)
+{
+	uint8 *data;
+	uint32 size;
+	xModel *mdl;
+
+	if(!readfile(path, &data, &size)) {
+		printf("error: can't read %s\n", path);
+		return nil;
+	}
+	mdl = loadXModelText((char*)data, size);
+	free(data);
+	return mdl;
+}
+
 void
 buildXModel(xModel *mdl)
 {
@@ -802,6 +833,8 @@ buildXModel(xModel *mdl)
 		g = m->geo;
 		if(g == nil) continue;
 
+		// the PS2 bakes the pipeline into the list; GL picks it when drawing
+		xtcSetPipeline(m->skin ? skinPipeline : stdPipeline);
 		m->prims = xtcCreatePrimList();
 		xtcStartList(m->prims);
 
@@ -818,7 +851,7 @@ buildXModel(xModel *mdl)
 			xtcTexCoord(v->tex[0], v->tex[1]);
 			xtcNormal(v->nrm[0], v->nrm[1], v->nrm[2]);
 			xtcColor(v->col[0], v->col[1], v->col[2], v->col[3]);
-			xtcVertex3(v->vtx[0], v->vtx[1], v->vtx[2]);
+			xtcVertex(v->vtx[0], v->vtx[1], v->vtx[2]);
 		}
 		xtcEnd();
 		xtcEndList();
@@ -905,9 +938,10 @@ readVec3(char **tokens)
 	return vec3(atof(tokens[0]), atof(tokens[1]), atof(tokens[2]));
 }
 
-xAnimList*
-loadXAnimList(FILE *file)
+static xAnimList*
+loadXAnimListText(char *text, uint32 size)
 {
+	TextReader tr = { text, text + size };
 	char line[4096];
 	char *tokens[1000];
 	int ntok;
@@ -921,7 +955,7 @@ loadXAnimList(FILE *file)
 	chan = nil;
 	na = nc = nr = nt = ns = 0;
 
-	while(fgets(line, sizeof(line), file)) {
+	while(readLine(&tr, line, sizeof(line))) {
 		ntok = tokenize(line, tokens, 1000);
 		if(ntok < 1) continue;
 		switch(lookup(acmds, tokens[0])) {
@@ -990,6 +1024,22 @@ loadXAnimList(FILE *file)
 		}
 	}
 
+	return al;
+}
+
+xAnimList*
+loadXAnimList(const char *path)
+{
+	uint8 *data;
+	uint32 size;
+	xAnimList *al;
+
+	if(!readfile(path, &data, &size)) {
+		printf("error: can't read %s\n", path);
+		return nil;
+	}
+	al = loadXAnimListText((char*)data, size);
+	free(data);
 	return al;
 }
 

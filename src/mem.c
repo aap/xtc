@@ -1,5 +1,5 @@
 #include "mdma.h"
-#include "xtc.h"
+#include "xtci.h"
 
 #include <assert.h>
 #include <stdlib.h>

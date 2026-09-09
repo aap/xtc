@@ -1,15 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 #include <assert.h>
 
+#include "xtcplat.h"	// the integer types of the platform at hand
 #include "chunk.h"
 
+#ifndef nil
 #define nil NULL
-typedef uint32_t u32;
-typedef uint16_t u16;
-typedef uint8_t u8;
+#endif
+typedef uint32 u32;
+typedef uint16 u16;
+typedef uint8 u8;
 typedef int32_t i32;
 typedef int16_t i16;
 typedef int8_t i8;
@@ -62,7 +64,7 @@ ChunkData*
 makeChunkData(void)
 {
 	ChunkData *chk;
-	chk = malloc(sizeof(ChunkData));
+	chk = (ChunkData*)malloc(sizeof(ChunkData));
 	chk->numBlocks = 0;
 	chk->blocks = nil;
 	chk->numPointers = 0;
@@ -96,7 +98,7 @@ addBlock(ChunkData *chk, void *base, size_t size, int align)
 {
 	Block *b;
 	chk->numBlocks++;
-	chk->blocks = realloc(chk->blocks, chk->numBlocks*sizeof(Block));
+	chk->blocks = (Block*)realloc(chk->blocks, chk->numBlocks*sizeof(Block));
 	assert(chk->blocks);
 	b = &chk->blocks[chk->numBlocks-1];
 //printf("adding block %p\n", base);
@@ -134,7 +136,7 @@ addPointer(ChunkData *chk, void **ptr)
 	Block *b;
 
 	chk->numPointers++;
-	chk->pointers = realloc(chk->pointers, chk->numPointers*sizeof(Pointer));
+	chk->pointers = (Pointer*)realloc(chk->pointers, chk->numPointers*sizeof(Pointer));
 	assert(chk->pointers);
 	p = &chk->pointers[chk->numPointers-1];
 //printf("adding ptr %p\n", ptr);
@@ -175,7 +177,7 @@ fixPointers(ChunkData *chk)
 {
 	int i;
 
-	chk->relocations = malloc(chk->numPointers*sizeof(u32));
+	chk->relocations = (u32*)malloc(chk->numPointers*sizeof(u32));
 	chk->numRelocations = 0;
 
 	for(i = 0; i < chk->numPointers; i++){
@@ -219,7 +221,7 @@ writeChunk(ChunkData *chk, FILE *f)
 
 	fixPointers(chk);
 
-	buffer = malloc(totalSize);
+	buffer = (u8*)malloc(totalSize);
 	memset(buffer, 0xAA, totalSize);
 	header = (sChunkHeader*)buffer;
 	memset(header, 0, sizeof(sChunkHeader));

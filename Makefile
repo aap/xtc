@@ -3,7 +3,7 @@ CXX=ee-g++
 
 TARGET=xtcdemo
 
-SRCDIRS := src src/vu1 src/data
+SRCDIRS := src src/vu1 src/data common
 OBJDIR := build
 
 # mdma is a sibling checkout, built with our compiler and our flags:
@@ -21,6 +21,7 @@ VUSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.dsm))
 
 #CFLAGS := -fno-common -fno-exceptions
 CFLAGS := -std=gnu99 -Os -fno-common -fno-exceptions ####-ffunction-sections -fdata-sections
+CXXFLAGS := -Os -fno-common -fno-exceptions -fno-rtti
 
 # libmc and libscf were in here and nothing references them
 LIBS=	$(SCELIBDIR)/libgraph.a	\
@@ -38,7 +39,7 @@ OBJ := $(addprefix $(OBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o))
 DEP := $(addprefix $(OBJDIR)/,$(CSRC:.c=.d) $(CXXSRC:.cpp=.d))
 
 ASINC := $(addprefix -I,$(SRCDIRS))
-INC := $(addprefix -I,$(SRCDIRS))	\
+INC := $(addprefix -I,$(SRCDIRS)) -Icommon	\
 	-I$(MDMADIR)			\
 	-I/usr/local/sce/common/include	\
 	-I/usr/local/sce/ee/include
@@ -74,7 +75,7 @@ $(OBJDIR)/%.o: %.c
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 $(OBJDIR)/%.o: %.cpp
 	@mkdir -p $(@D)
-	$(CXX) $(CFLAGS) $(INC) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INC) -c $< -o $@
 
 $(OBJDIR)/%.d: %.c
 	@mkdir -p $(@D)
@@ -125,7 +126,7 @@ FSCC := $(FREESCE_GCC)/bin/ee-gcc
 FSCXX := $(FREESCE_GCC)/bin/ee-g++
 FSGCCLIB := $(FREESCE_GCC)/lib/gcc-lib/ee/2.9-ee-991111-01
 FSFLAGS := -O2 -fno-common -fno-exceptions -DLODEPNG_NO_COMPILE_CPP -DJOY_ROMPAD
-FSINC := $(addprefix -I,$(SRCDIRS)) -I$(MDMADIR) $(FREESCE_INC)
+FSINC := $(addprefix -I,$(SRCDIRS)) -Icommon -I$(MDMADIR) $(FREESCE_INC)
 
 FSOBJDIR := build/freesce
 FSOBJ := $(addprefix $(FSOBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o)) \

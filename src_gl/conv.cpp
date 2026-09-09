@@ -4,11 +4,11 @@
 
 #include "xtc.h"
 #include "xmodel.h"
+#include <assert.h>
 #include "conv.h"
 
 #include <assimp/scene.h>
 
-xtcMaterial DefaultMaterial(void);
 xTexture *readTexture(const char *name);
 xTexture *createTexturePNG(const char *name, const u8 *data, u32 size);
 
@@ -224,7 +224,9 @@ convertAssimpMesh(aiMesh *m, HierEntry *hier)
 		}
 		if(uv) {
 			vx->tex[0] = uv[i].x;
-			vx->tex[1] = uv[i].y;
+			// assimp's t runs bottom up; ours, like the GS's, glTF's
+			// and RenderWare's, has row 0 at the top of the image
+			vx->tex[1] = 1.0f - uv[i].y;
 		}
 		// no vertex colours: stay black, materials use them as emissive
 		if(col) {
@@ -272,11 +274,13 @@ convertAssimpMaterial(const aiScene *scene, aiMaterial *m)
 		xmat->material.specular = vec4(color.r, color.g, color.b, color.a);
 	if(m->Get(AI_MATKEY_COLOR_EMISSIVE, color) == AI_SUCCESS)
 		xmat->material.emissive = vec4(color.r, color.g, color.b, color.a);
-	m->Get(AI_MATKEY_SHININESS, xmat->material.shininess);
+	float shininess = 0.0f;
+	m->Get(AI_MATKEY_SHININESS, shininess);
+	xmat->material.specular.w = shininess;
 	// use vertex color for emissive
-	xmat->material.colorSelector = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	xmat->colorMaterial = XTC_EMISSIVE;
 	// TODO: no specular yet
-	xmat->material.shininess = 0;
+	xmat->material.specular.w = 0.0f;
 
 	aiString path;
 	const char *p;

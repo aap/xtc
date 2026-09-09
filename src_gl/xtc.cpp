@@ -1,4 +1,4 @@
-#include "xtc.h"
+#include "xtci.h"
 #include "glad/glad.h"
 #include "lodepng/lodepng.h"
 
@@ -12,12 +12,13 @@ using glm::value_ptr;
 #include <GL/gl.h>
 #include <stdio.h>
 
+// in xtcPrimType order: POINTS, LINELIST, LINESTRIP, TRILIST, TRISTRIP
 GLenum primMap[] = {
-	[XTC_POINTS] =  GL_POINTS,
-	[XTC_LINESTRIP] =  GL_LINE_STRIP,
-	[XTC_LINELIST] = GL_LINES,
-	[XTC_TRISTRIP] =  GL_TRIANGLE_STRIP,
-	[XTC_TRILIST] = GL_TRIANGLES
+	GL_POINTS,
+	GL_LINES,
+	GL_LINE_STRIP,
+	GL_TRIANGLES,
+	GL_TRIANGLE_STRIP
 };
 
 const xtcRGBA white = { 255, 255, 255, 255 };
@@ -40,7 +41,9 @@ struct {
 	xtcLight lights[8];
 
 	// mesh
-	xtcMaterial material;
+	xtcStdMaterial material;
+	xtcRwMaterial rwMaterial;	// stored, no pipeline reads it yet
+	uint32 colorMaterial;
 
 	// skin
 	glm::mat4 boneMatrices[64];
@@ -234,13 +237,17 @@ uploadObjectUniforms(void)
 static void
 uploadMaterialUniforms(void)
 {
-	const xtcMaterial &mat = uniformState.material;
-	glUniform4fv(curProg->u_matColorSelector, 1, &mat.colorSelector.x);
+	const xtcStdMaterial &mat = uniformState.material;
+	// the colour material bits as the shader's per-term selector
+	uint32 bits = uniformState.colorMaterial;
+	glm::vec4 sel(bits & XTC_AMBIENT ? 1.0f : 0.0f, bits & XTC_DIFFUSE ? 1.0f : 0.0f,
+	              bits & XTC_SPECULAR ? 1.0f : 0.0f, bits & XTC_EMISSIVE ? 1.0f : 0.0f);
+	glUniform4fv(curProg->u_matColorSelector, 1, value_ptr(sel));
 	glUniform4fv(curProg->u_matAmbient, 1, &mat.ambient.x);
 	glUniform4fv(curProg->u_matDiffuse, 1, &mat.diffuse.x);
 	glUniform4fv(curProg->u_matSpecular, 1, &mat.specular.x);
 	glUniform4fv(curProg->u_matEmissive, 1, &mat.emissive.x);
-	glUniform1f(curProg->u_matShininess, mat.shininess);
+	glUniform1f(curProg->u_matShininess, mat.specular.w);
 }
 
 // the one hardcoded light of the default and skin pipelines
@@ -335,34 +342,31 @@ uploadSkin(void)
 	glUniformMatrix4fv(curProg->u_boneMatrices, 64, GL_FALSE, value_ptr(uniformState.boneMatrices[0]));
 }
 
+// the std pipeline: the 4 light shader unless more directionals are on,
+// the way the VU1 code picks its lighting routine
 static void
-uploadLit4(void)
+uploadStd(void)
 {
-	usePrograms(&lit4Progs, "#version 460\n#define NLIGHTS 4\n", lit_vert_src);
+	int ndir = 0;
+	for(u32 i = 0; i < nelem(uniformState.lights); i++)
+		if(uniformState.lights[i].enabled && uniformState.lights[i].type == XTC_LIGHT_DIRECT)
+			ndir++;
+	if(ndir > 4)
+		usePrograms(&lit8Progs, "#version 460\n#define NLIGHTS 8\n", lit_vert_src);
+	else
+		usePrograms(&lit4Progs, "#version 460\n#define NLIGHTS 4\n", lit_vert_src);
 	uploadCameraUniforms();
 	uploadObjectUniforms();
 	uploadMaterialUniforms();
-	uploadLitLightUniforms(4);
-}
-
-static void
-uploadLit8(void)
-{
-	usePrograms(&lit8Progs, "#version 460\n#define NLIGHTS 8\n", lit_vert_src);
-	uploadCameraUniforms();
-	uploadObjectUniforms();
-	uploadMaterialUniforms();
-	uploadLitLightUniforms(8);
+	uploadLitLightUniforms(ndir > 4 ? 8 : 4);
 }
 
 static xtcPipeline defaultPipe = { uploadDefault };
 static xtcPipeline skinPipe = { uploadSkin };
-static xtcPipeline lit4Pipe = { uploadLit4 };
-static xtcPipeline lit8Pipe = { uploadLit8 };
+static xtcPipeline stdPipe = { uploadStd };
 xtcPipeline *defaultPipeline = &defaultPipe;
 xtcPipeline *skinPipeline = &skinPipe;
-xtcPipeline *lit4Pipeline = &lit4Pipe;
-xtcPipeline *lit8Pipeline = &lit8Pipe;
+xtcPipeline *stdPipeline = &stdPipe;
 
 
 void
@@ -383,11 +387,6 @@ xtcSetWorldMatrix(const Mat4 *world)
 	uniformState.worldMat = GLM_MAT4(world);
 	uniformState.normalMat = glm::inverse(glm::transpose(uniformState.worldMat));
 }
-void
-xtcSetWorldMatrix(const Mat4 &world)
-{
-	xtcSetWorldMatrix(&world);
-}
 
 Mat4
 xtcGetWorldMatrix(void)
@@ -396,9 +395,9 @@ xtcGetWorldMatrix(void)
 }
 
 void
-xtcSetAmbient(int r, int g, int b)
+xtcSetAmbient(float r, float g, float b)
 {
-	uniformState.globalAmbient = glm::vec4(r, g, b, 255)/255.0f;
+	uniformState.globalAmbient = glm::vec4(r, g, b, 1.0f);
 }
 
 void
@@ -410,9 +409,21 @@ xtcSetLight(int n, const xtcLight *light)
 }
 
 void
-xtcSetMaterial(const xtcMaterial *mat)
+xtcSetStdMaterial(const xtcStdMaterial *mat)
 {
 	uniformState.material = *mat;
+}
+
+void
+xtcSetRwMaterial(const xtcRwMaterial *mat)
+{
+	uniformState.rwMaterial = *mat;
+}
+
+void
+xtcSetColorMaterial(uint32 bits)
+{
+	uniformState.colorMaterial = bits;
 }
 
 
@@ -426,6 +437,12 @@ xtcSetTextureN(int n, xtcTexture *tex)
 	else
 		glBindTextureUnit(n, 0);
 	textures[n] = tex;
+}
+
+void
+xtcSetTexture(xtcTexture *tex)
+{
+	xtcSetTextureN(0, tex);
 }
 
 void
@@ -506,7 +523,14 @@ enum xtceDepthFunc {
 };
 */
 
-void xtcDepthFunc(xtceDepthFunc func);
+// the PS2 z buffer runs the other way (near is the largest value), so
+// GS GEQUAL is GL LEQUAL
+void
+xtcDepthFunc(xtceDepthFunc func)
+{
+	static const GLenum map[] = { GL_NEVER, GL_ALWAYS, GL_LEQUAL, GL_LESS };
+	glDepthFunc(map[func]);
+}
 
 /*
 enum xtceAlphaFunc {
@@ -528,7 +552,12 @@ enum xtceAlphaFail {
 };
 */
 
-void xtcAlphaFunc(xtceAlphaFunc func, int ref, xtceAlphaFail fail);
+// no alpha test in core GL; tex.frag discards alpha 0
+void
+xtcAlphaFunc(xtceAlphaFunc func, int ref, xtceAlphaFail fail)
+{
+	(void)func; (void)ref; (void)fail;
+}
 
 /*
 enum xtceAlpha {
@@ -539,7 +568,12 @@ enum xtceAlpha {
 };
 */
 
-void xtcBlendFunc(xtceAlpha a, xtceAlpha b, xtceAlpha c, xtceAlpha d, int fix);
+// TODO: the GS equation (a - b)*c + d for the cases GL can express
+void
+xtcBlendFunc(xtceAlpha a, xtceAlpha b, xtceAlpha c, xtceAlpha d, int fix)
+{
+	(void)a; (void)b; (void)c; (void)d; (void)fix;
+}
 
 static int blendMap[] = {
 	GL_ZERO, // XTC_BLEND_ZERO
@@ -556,7 +590,12 @@ xtcBlendFuncSrcDst(xtcBlendFactor src, xtcBlendFactor dst)
 	glBlendFunc(blendMap[src], blendMap[dst]);
 }
 
-void xtcFog(float start, float end, u32 col);
+// TODO: fog in the shaders
+void
+xtcFog(float start, float end, u32 col)
+{
+	(void)start; (void)end; (void)col;
+}
 
 /*
 enum xtceShadeModel {
@@ -565,11 +604,46 @@ enum xtceShadeModel {
 };
 */
 
-void xtcShadeModel(xtceShadeModel model);
+// TODO: flat shading needs the provoking vertex in the shaders
+void
+xtcShadeModel(xtceShadeModel model)
+{
+	(void)model;
+}
+
+// AABBGGRR, set bits are not written, like the GS FBMSK
+void
+xtcPixelMask(u32 mask)
+{
+	glColorMask((mask & 0xFF) != 0xFF, (mask>>8 & 0xFF) != 0xFF,
+	            (mask>>16 & 0xFF) != 0xFF, (mask>>24 & 0xFF) != 0xFF);
+}
+
+// 1 masks the z buffer, like the GS ZMSK
+void
+xtcDepthMask(int mask)
+{
+	glDepthMask(!mask);
+}
+
+void
+xtcDepthRange(int near, int far)
+{
+	(void)near; (void)far;
+}
+
+// texture state and colour scaling are the GS's; the shaders here
+// have their own conventions
+void xtcTexFunc(xtcTCC tcc, xtcTFX tfx) { (void)tcc; (void)tfx; }
+void xtcTexFilter(xtcFilter min, xtcFilter mag) { (void)min; (void)mag; }
+void xtcTexWrap(xtcWrap u, xtcWrap v) { (void)u; (void)v; }
+void xtcTexLodMode(int lcm, int k, int l) { (void)lcm; (void)k; (void)l; }
+void xtcColorScale(float r, float g, float b, float a) { (void)r; (void)g; (void)b; (void)a; }
+void xtcColorScaleTex(float r, float g, float b, float a) { (void)r; (void)g; (void)b; (void)a; }
 
 
 
-static void
+static void __attribute__((unused))
 flip(u8 *texdata, u32 width, u32 height)
 {
 	u8 *newdata = (u8*)malloc(width*height*4);
@@ -590,7 +664,7 @@ xtcTextureReadPNG(const u8 *data, u32 size)
 		return nil;
 	}
 
-	flip(texdata, width, height);
+	// no flip: t = 0 is the first row of the image, as on the GS
 
 	xtcTexture *tex = (xtcTexture*)malloc(sizeof(xtcTexture));
 	tex->width = width;
@@ -724,6 +798,7 @@ xtcBegin(xtcPrimType prim)
 	immstate.vert.color = white;
 	immstate.vert.normal = vec3(0.0f, 0.0f, 0.0f);
 	immstate.vert.texcoord = vec3(0.0f, 0.0f, 1.0f);
+	immstate.restartstrip = 0;
 
 	if(curList == nil)
 		curPipe->upload();
@@ -787,32 +862,36 @@ xtcPointSize(float size)
 }
 
 void
-xtcVertex3(float x, float y, float z)
+xtcVertex(float x, float y, float z)
 {
 	immstate.vert.pos.x = x;
 	immstate.vert.pos.y = y;
 	immstate.vert.pos.z = z;
 	immstate.vertstore.push_back(immstate.vert);
+	// a restarted strip: the first vertex of the new strip twice
+	if(immstate.restartstrip) {
+		immstate.vertstore.push_back(immstate.vert);
+		immstate.restartstrip = 0;
+	}
 }
+
+// like the PS2: the last vertex again, then the next one twice,
+// two degenerate triangles between the strips
 void
-xtcVertex3v(const Vec3 &xyz)
+xtcRestartStrip(void)
 {
-	immstate.vert.pos = xyz;
-	immstate.vertstore.push_back(immstate.vert);
+	if(!immstate.vertstore.empty())
+		immstate.vertstore.push_back(immstate.vertstore.back());
+	immstate.restartstrip = 1;
 }
 
 void
-xtcColor(u8 r, u8 g, u8 b, u8 a)
+xtcColor(uint32 r, uint32 g, uint32 b, uint32 a)
 {
 	immstate.vert.color.r = r;
 	immstate.vert.color.g = g;
 	immstate.vert.color.b = b;
 	immstate.vert.color.a = a;
-}
-void
-xtcColor(const xtcRGBA &rgba)
-{
-	immstate.vert.color = rgba;
 }
 
 void
@@ -821,11 +900,6 @@ xtcNormal(float x, float y, float z)
 	immstate.vert.normal.x = x;
 	immstate.vert.normal.y = y;
 	immstate.vert.normal.z = z;
-}
-void
-xtcNormalv(const Vec3 &xyz)
-{
-	immstate.vert.normal = xyz;
 }
 
 void
@@ -837,11 +911,6 @@ void
 xtcTexCoord3(float s, float t, float q)
 {
 	immstate.vert.texcoord = vec3(s, t, q);
-}
-void
-xtcTexCoordv(const Vec2 &st)
-{
-	immstate.vert.texcoord = vec3(st.x, st.y, 1.0f);
 }
 
 void

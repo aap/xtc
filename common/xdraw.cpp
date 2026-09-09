@@ -9,18 +9,25 @@
 #endif
 
 
-void DrawAxes(float scale = 1.0f);
-xtcMaterial DefaultMaterial(void);
+xtcStdMaterial
+DefaultMaterial(void)
+{
+	xtcStdMaterial mat;
+	mat.emissive = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	mat.ambient = vec4(0.2f, 0.2f, 0.2f, 1.0f);
+	mat.diffuse = vec4(0.8f, 0.8f, 0.8f, 1.0f);
+	mat.specular = vec4(0.0f, 0.0f, 0.0f, 0.0f);	// w is the power
+	return mat;
+}
 
 // vertex colours only
-static xtcMaterial*
+static xtcStdMaterial*
 debugMaterial(void)
 {
-	static xtcMaterial mat;
+	static xtcStdMaterial mat;
 	static bool init;
 	if(!init) {
 		mat = DefaultMaterial();
-		mat.colorSelector = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		mat.ambient = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		mat.diffuse = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		init = true;
@@ -29,10 +36,10 @@ debugMaterial(void)
 }
 
 // solid white
-static xtcMaterial*
+static xtcStdMaterial*
 wireMaterial(void)
 {
-	static xtcMaterial mat;
+	static xtcStdMaterial mat;
 	static bool init;
 	if(!init) {
 		mat = DefaultMaterial();
@@ -43,6 +50,27 @@ wireMaterial(void)
 		init = true;
 	}
 	return &mat;
+}
+
+// a small axes gizmo at the current world matrix, for the node views
+static void
+xDrawAxes(float scale)
+{
+	xtcSetPipeline(defaultPipeline);
+	xtcSetTexture(nil);
+	xtcSetStdMaterial(debugMaterial());
+	xtcSetColorMaterial(XTC_EMISSIVE);
+	xtcBegin(XTC_LINELIST);
+		xtcColor(255, 0, 0, 255);
+		xtcVertex(0.0f, 0.0f, 0.0f);
+		xtcVertex(scale, 0.0f, 0.0f);
+		xtcColor(0, 255, 0, 255);
+		xtcVertex(0.0f, 0.0f, 0.0f);
+		xtcVertex(0.0f, scale, 0.0f);
+		xtcColor(0, 0, 255, 255);
+		xtcVertex(0.0f, 0.0f, 0.0f);
+		xtcVertex(0.0f, 0.0f, scale);
+	xtcEnd();
 }
 
 // the world matrix of the model being drawn.
@@ -79,7 +107,8 @@ xVerticesDraw(xMesh *xm, xSkeleton *skel)
 
 	xMeshSelectShader(xm, skel);
 	xtcSetTexture(nil);
-	xtcSetMaterial(debugMaterial());
+	xtcSetStdMaterial(debugMaterial());
+	xtcSetColorMaterial(XTC_EMISSIVE);
 	xtcPointSize(4.0f);
 	xtcBegin(XTC_POINTS);
 	for(int i = 0; i < geo->numVertices; i++) {
@@ -94,7 +123,7 @@ xVerticesDraw(xMesh *xm, xSkeleton *skel)
 			xtcColor(155, 0, 40, 255);
 		else
 			xtcColor(255, 255, 0, 255);
-		xtcVertex3(v->vtx[0], v->vtx[1], v->vtx[2]);
+		xtcVertex(v->vtx[0], v->vtx[1], v->vtx[2]);
 	}
 	xtcEnd();
 }
@@ -106,7 +135,8 @@ xWireDraw(xMesh *xm, xSkeleton *skel)
 {
 	xMeshSelectShader(xm, skel);
 	xtcSetTexture(nil);
-	xtcSetMaterial(wireMaterial());
+	xtcSetStdMaterial(wireMaterial());
+	xtcSetColorMaterial(0);
 	glEnable(GL_POLYGON_OFFSET_LINE);
 	glPolygonOffset(1.5f, 0.0f);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -129,7 +159,8 @@ xMeshDraw(xMesh *xm, xSkeleton *skel, int flags)
 		xtcSetTexture(xm->material->tex->tex);
 	else
 		xtcSetTexture(nil);
-	xtcSetMaterial(&xm->material->material);
+	xtcSetStdMaterial(&xm->material->material);
+	xtcSetColorMaterial(xm->material->colorMaterial);
 #ifdef XTC_GL
 	if(flags & Dbg_DrawWire) {
 		glEnable(GL_POLYGON_OFFSET_FILL);
@@ -160,7 +191,8 @@ xSkeletonDraw(xSkeleton *s)
 
 	xtcSetPipeline(defaultPipeline);
 	xtcSetTexture(nil);
-	xtcSetMaterial(debugMaterial());
+	xtcSetStdMaterial(debugMaterial());
+	xtcSetColorMaterial(XTC_EMISSIVE);
 
 	int parent = 0;
 	xtcBegin(XTC_LINELIST);
@@ -169,9 +201,9 @@ xSkeletonDraw(xSkeleton *s)
 		Vec4 p1 = s->matrices[parent] * vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		Vec4 p2 = s->matrices[i] * vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		xtcColor(255, 255, 255, 255);
-		xtcVertex3(p1.x, p1.y, p1.z);
+		xtcVertex(p1.x, p1.y, p1.z);
 		xtcColor(255, 128, 0, 255);
-		xtcVertex3(p2.x, p2.y, p2.z);
+		xtcVertex(p2.x, p2.y, p2.z);
 
 		if(b->flag & 1) stack[sp++] = parent;
 		parent = i;
@@ -199,7 +231,7 @@ xNodeDebugDraw(xNode *n, int flags)
 	Mat4 oldmat = xtcGetWorldMatrix();
 	xtcSetWorldMatrix(oldmat * n->localMatrix);
 	if(flags & Dbg_DrawNodes)
-		DrawAxes(0.1f);
+		xDrawAxes(0.1f);
 	for(xNode *child = n->child; child; child = child->next)
 		xNodeDebugDraw(child, flags);
 	xtcSetWorldMatrix(oldmat);

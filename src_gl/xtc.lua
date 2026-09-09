@@ -27,14 +27,21 @@ XTC_BLEND_INVDSTALPHA = 5
 
 -- xtcPrimType
 XTC_POINTS = 0
-XTC_LINESTRIP = 1
-XTC_LINELIST = 2
-XTC_TRISTRIP = 3
-XTC_TRILIST = 4
+XTC_LINELIST = 1
+XTC_LINESTRIP = 2
+XTC_TRILIST = 3
+XTC_TRISTRIP = 4
+
+-- xtcColorBit, for xtcSetColorMaterial
+XTC_EMISSIVE = 1
+XTC_AMBIENT = 2
+XTC_DIFFUSE = 4
+XTC_SPECULAR = 8
 
 ---- xtcSetViewMatrix
 ---- xtcSetWorldMatrix
 ---- xtcGetWorldMatrix
+---- xtcSetBoneMatrices({mat4, ...})
 ---- xtcBegin(primtype)
 ---- xtcEnd()
 ---- xtcVertex(x, y, z)
@@ -45,15 +52,17 @@ XTC_TRILIST = 4
 ---- xtcWeights(w1, w2, w3, w4)
 
 
----- xtcSetPipeline(pipe)	-- defaultPipeline, skinPipeline, lit4Pipeline, lit8Pipeline
+---- xtcSetPipeline(pipe)	-- defaultPipeline, skinPipeline, stdPipeline
 ---- xtcSetTexture
----- xtcSetMaterial
+---- xtcStdMaterial()
+---- xtcSetStdMaterial(m)
+---- xtcSetColorMaterial(bits)
 
 -- xtcLightType
 XTC_LIGHT_DIRECT = 0
 XTC_LIGHT_POINT = 1
 ---- xtcLight()
----- xtcSetAmbient(r, g, b)	-- 0-255
+---- xtcSetAmbient(r, g, b)	-- 0-1
 ---- xtcSetLight(n, light)
 
 -- TODO:

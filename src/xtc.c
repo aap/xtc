@@ -1,4 +1,4 @@
-#include "xtc.h"
+#include "xtci.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,11 +10,11 @@
 
 struct xtcState xtcState;
 
-static float identity[16] = {
-	1.0f, 0.0f, 0.0f, 0.0f,
-	0.0f, 1.0f, 0.0f, 0.0f,
-	0.0f, 0.0f, 1.0f, 0.0f,
-	0.0f, 0.0f, 0.0f, 1.0f
+static Mat4 identity = {
+	{ 1.0f, 0.0f, 0.0f, 0.0f },
+	{ 0.0f, 1.0f, 0.0f, 0.0f },
+	{ 0.0f, 0.0f, 1.0f, 0.0f },
+	{ 0.0f, 0.0f, 0.0f, 1.0f }
 };
 
 void
@@ -57,18 +57,19 @@ updateZ(void)
 }
 
 void
-xtcSetProjectionMatrix(const float *mat)
+xtcSetProjectionMatrix(const Mat4 *mat)
 {
 	float *p;
 
-	memcpy(xtcState.proj, mat, sizeof(xtcState.proj));
+	xtcState.proj = *mat;
 
-	float a = xtcState.proj[10];
-	float b = xtcState.proj[14];
+	// GL convention: a = (n+f)/(n-f), b = 2nf/(n-f)
+	float a = xtcState.proj.z.z;
+	float b = xtcState.proj.w.z;
 
 	// if perspective
-	xtcState.near = b/(-1.0f-a);
-	xtcState.far = b/(1.0f-a);
+	xtcState.near = b/(a-1.0f);
+	xtcState.far = b/(a+1.0f);
 
 	p = (float*)&xtcState.clipConsts;
 	p[2] = xtcState.near;
@@ -78,9 +79,9 @@ xtcSetProjectionMatrix(const float *mat)
 }
 
 void
-xtcSetViewMatrix(const float *mat)
+xtcSetViewMatrix(const Mat4 *mat)
 {
-	memcpy(xtcState.view, mat, sizeof(xtcState.view));
+	xtcState.view = *mat;
 /*
 	// TODO: maybe rethink choice of coord system?
 	xtcState.view[0] = -xtcState.view[0];
@@ -91,9 +92,31 @@ xtcSetViewMatrix(const float *mat)
 }
 
 void
-xtcSetWorldMatrix(const float *mat)
+xtcSetWorldMatrix(const Mat4 *mat)
 {
-	memcpy(xtcState.world, mat, sizeof(xtcState.world));
+	xtcState.world = *mat;
+}
+
+Mat4
+xtcGetWorldMatrix(void)
+{
+	return xtcState.world;
+}
+
+// points are drawn as points until a VU1 sprite pipeline exists
+void
+xtcPointSize(float size)
+{
+	(void)size;
+}
+
+void
+xtcSetBoneMatrices(const Mat4 *matrices, int n)
+{
+	if(n > (int)nelem(xtcState.boneMatrices))
+		n = nelem(xtcState.boneMatrices);
+	memcpy(xtcState.boneMatrices, matrices, n*sizeof(Mat4));
+	xtcState.numBoneMatrices = n;
 }
 
 void
@@ -374,26 +397,24 @@ xtcColorScaleTex(float r, float g, float b, float a)
 }
 
 void
-xtcSetAmbient(int r, int g, int b)
+xtcSetAmbient(float r, float g, float b)
 {
-	xtcState.ambient.r = r;
-	xtcState.ambient.g = g;
-	xtcState.ambient.b = b;
+	xtcState.ambient = vec4(r, g, b, 0.0f);
 }
 
-void xtcSetLight(int n, xtcLight *light)
+void xtcSetLight(int n, const xtcLight *light)
 {
 	if(n < 0 || (uint32)n >= nelem(xtcState.lights))
 		return;
 	xtcState.lights[n] = *light;
 }
 
-void xtcSetRwMaterial(xtcRwMaterial *mat)
+void xtcSetRwMaterial(const xtcRwMaterial *mat)
 {
 	xtcState.rwMaterial = *mat;
 }
 
-void xtcSetStdMaterial(xtcStdMaterial *mat)
+void xtcSetStdMaterial(const xtcStdMaterial *mat)
 {
 	xtcState.stdMaterial = *mat;
 }
@@ -440,26 +461,23 @@ xtcInit(int width, int height, int depth)
 	xtcScissor(0, 0, width, height);
 	xtcFog(0.0f, 1.0f, 0);
 
-	xtcSetProjectionMatrix(identity);
-	xtcSetViewMatrix(identity);
-	xtcSetWorldMatrix(identity);
+	xtcSetProjectionMatrix(&identity);
+	xtcSetViewMatrix(&identity);
+	xtcSetWorldMatrix(&identity);
 
 	const float scl = 128.0f/255.0f;
 	xtcColorScale(1.0f, 1.0f, 1.0f, scl);
 	xtcColorScaleTex(scl, scl, scl, scl);
 
 	xtcRwMaterial *m = &xtcState.rwMaterial;
-	m->color.r = 1.0f;
-	m->color.g = 1.0f;
-	m->color.b = 1.0f;
-	m->color.a = 1.0f;
+	m->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
 	m->ambient = 1.0f;
 	m->diffuse = 1.0f;
 	m->specular = 1.0f;
 	m->shininess = 1.0f;
 
-	xtcRGBA black = { 0.0f, 0.0f, 0.0f, 0.0f };
-	xtcRGBA white = { 1.0f, 1.0f, 1.0f, 0.0f };
+	Vec4 black = { 0.0f, 0.0f, 0.0f, 0.0f };
+	Vec4 white = { 1.0f, 1.0f, 1.0f, 0.0f };
 	xtcStdMaterial *n = &xtcState.stdMaterial;
 	n->emissive = black;
 	n->ambient = white;
@@ -467,7 +485,7 @@ xtcInit(int width, int height, int depth)
 	n->specular = white;
 	xtcState.stdColSel = 0;
 
-	xtcSetAmbient(51, 51, 51);
+	xtcSetAmbient(0.2f, 0.2f, 0.2f);
 
 	xtcgSetRegs(xtcState.list);
 }

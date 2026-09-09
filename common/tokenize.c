@@ -2,6 +2,11 @@
 #include <string.h>
 #define nil NULL
 
+/* the freesce build compiles C as C++ */
+#ifdef __cplusplus
+extern "C" int tokenize(char *s, char **args, int maxargs);
+#endif
+
 static char qsep[] = " \t\r\n";
 
 static char*

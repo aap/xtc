@@ -1,37 +1,47 @@
 /*
  * Platform independent model, skeleton and animation data.
- * Needs the platform's xtc.h on the include path for
- * xtcMaterial, xtcTexture, xtcPrimList, xtcTextureReadPNG
- * and the integer types.
+ * Builds on the shared xtc.h.
  */
 
-#pragma once
+#ifndef XMODEL_H
+#define XMODEL_H
 
 #include "xtc.h"
 #include <stdio.h>
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
 
 // zeroed, asserts on failure
 void *emalloc(size_t sz);
-// whole file into malloc'd memory, 0 on failure
+// whole file into malloc'd memory, 0 on failure.  the backend's: stdio
+// on the PC, fio on the PS2 (src/xfile.c)
 int readfile(const char *path, uint8 **data, uint32 *size);
 
 extern const char *texpath;
 
 // this sort of mirrors assimp structs
-struct xTexture
-{
+STRUCT(xTexture) {
 	char *name;
 	xtcTexture *tex;
 };
 
-struct xMaterial
-{
-	xtcMaterial material;
+// one pass: the std material, which of its terms the vertex colour
+// replaces, and the texture
+STRUCT(xMaterial) {
+	xtcStdMaterial material;
+	uint32 colorMaterial;
 	xTexture *tex;
 };
 
-struct xVertex
-{
+STRUCT(xVertex) {
 	float vtx[3];
 	float nrm[3];
 	float tex[2];
@@ -39,16 +49,14 @@ struct xVertex
 };
 
 // platform-independent data
-struct xGeometry
-{
+STRUCT(xGeometry) {
 	int numVertices;
 	int numIndices;
 	xVertex *vertices;
 	int *indices;
 };
 
-struct xSkin
-{
+STRUCT(xSkin) {
 	int numBones;
 	Mat4 *invMatrices;	// [numBones]
 	uint8 *indices;		// [4*numVertices]
@@ -56,17 +64,16 @@ struct xSkin
 };
 xSkin *allocXSkin(int nbones, int nvertices);
 
-struct xMesh
-{
+STRUCT(xMesh) {
 	xtcPrimList *prims;
 	xMaterial *material;
 	xGeometry *geo;
 	xSkin *skin;
 };
 
-struct xNode;
+typedef struct xNode xNode;
 
-struct xBone {
+STRUCT(xBone) {
 	int flag;	// for topology
 	int tag;	// for custom use
 	xNode *node;
@@ -78,8 +85,7 @@ struct xBone {
  * matrices[] are in model space (relative to the xModel root);
  * before xSkeletonUpdateMatrices they hold the bones' local matrices.
  */
-struct xSkeleton
-{
+STRUCT(xSkeleton) {
 	int numBones;
 	xBone *bones;
 	Mat4 *matrices;
@@ -110,8 +116,7 @@ struct xNode
 xNode *allocXNode(void);
 xNode *findXNode(xNode *root, const char *name);
 
-struct xModel
-{
+STRUCT(xModel) {
 	int numMeshes;
 	int numMaterials;
 	xMesh **meshes;
@@ -128,7 +133,7 @@ struct xModel
 void allocXGeo(xMesh *m, int numVerts, int numIndices);
 void writeXModel(FILE *f, xModel *mdl);
 void writeXModelChunk(FILE *f, xModel *mdl);
-xModel *loadXModel(FILE *file);
+xModel *loadXModel(const char *path);
 xModel *loadXModelChunk(FILE *f);
 void buildXModel(xModel *mdl);
 // bind pose bounding sphere in model space
@@ -143,20 +148,17 @@ void xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius);
  * for rotation, translation and scale. Times are in seconds.
  */
 
-struct xRotKey
-{
+STRUCT(xRotKey) {
 	float time;
 	Quat rot;
 };
 
-struct xVecKey
-{
+STRUCT(xVecKey) {
 	float time;
 	Vec3 v;
 };
 
-struct xAnimChannel
-{
+STRUCT(xAnimChannel) {
 	char *name;
 	int id;
 
@@ -168,27 +170,24 @@ struct xAnimChannel
 	xVecKey *scaleKeys;
 };
 
-struct xAnimation
-{
+STRUCT(xAnimation) {
 	char *name;
 	float duration;
 	int numChannels;
 	xAnimChannel *channels;
 };
 
-struct xAnimList
-{
+STRUCT(xAnimList) {
 	int numAnims;
 	xAnimation *anims;
 };
 xAnimList *allocXAnimList(int nanims);
 void writeXAnimList(FILE *f, xAnimList *anims);
 void writeXAnimListChunk(FILE *f, xAnimList *alist);
-xAnimList *loadXAnimList(FILE *file);
+xAnimList *loadXAnimList(const char *path);
 xAnimList *loadXAnimListChunk(FILE *f);
 
-struct xAnimPlayer
-{
+STRUCT(xAnimPlayer) {
 	float time;
 	xAnimation *anim;
 	xModel *model;
@@ -208,5 +207,13 @@ enum {
 	Dbg_DrawPoints = 8,
 };
 void xModelDraw(xModel *m, int flags);
+// grey, unlit by vertex colours: what meshes get when the file says nothing
+xtcStdMaterial DefaultMaterial(void);
 // if set, draws unskinned meshes instead of defaultPipeline (stopgap)
 extern xtcPipeline *xDrawPipeline;
+
+#ifdef __cplusplus
+}	/* extern "C" */
+#endif
+
+#endif
