@@ -44,7 +44,7 @@ AmbientLoop:
 	mulx.xyz vf20,vf20,vf23		xtop vi02			; multiply color by surfProps - input pointer
 	nop				xitop vi01			; vertex count
 AmbientLoop:
-	nop				lq vf02,2(vi02)			; load rgba
+	nop				lq vf02,IN_RGBA(0,vi02)			; load rgba
 	nop				nop
 	nop				nop
 	nop				nop
@@ -52,7 +52,7 @@ AmbientLoop:
 	nop				isubiu vi01,vi01,1
 	nop				nop
 	nop				nop
-	nop				sq vf02,2(vi02)			; store rgba
+	nop				sq vf02,IN_RGBA(0,vi02)			; store rgba
 	nop				ibne vi01,vi00,AmbientLoop
 	nop				iaddiu vi02,vi02,numInAttribs
 .endif
@@ -103,8 +103,8 @@ DirectLoop:
 	nop				nop
 	sub.xyz vf21,vf00,vf21		nop				; flip light direction
 DirectLoop:
-	nop				lq.xyz vf03,3(vi02)		; load normal
-	nop				lq vf02,2(vi02)			; load rgba
+	nop				lq.xyz vf03,IN_NORMAL(0,vi02)	; load normal
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
 	nop				nop
 	nop				nop
 	mul.xyz vf01,vf03,vf21		nop				; normal*direction
@@ -127,7 +127,7 @@ DirectLoop:
 	nop				isubiu vi01,vi01,1
 	nop				nop
 	nop				nop
-	nop				sq vf02,2(vi02)			; store rgba
+	nop				sq vf02,IN_RGBA(0,vi02)		; store rgba
 	nop				ibne vi01,vi00,DirectLoop
 	nop				iaddiu vi02,vi02,numInAttribs
 .endif
@@ -161,7 +161,7 @@ PostLightLoop:
 	nop				xtop vi02			; input pointer
 	nop				xitop vi01			; vertex count
 PostLightLoop:
-	nop				lq vf02,2(vi02)			; load rgba
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
 	nop				nop
 	nop				nop
 	nop				loi 255.0
@@ -173,7 +173,7 @@ PostLightLoop:
 	nop				isubiu vi01,vi01,1
 	nop				nop
 	nop				nop
-	nop				sq vf02,2(vi02)			; store rgba
+	nop				sq vf02,IN_RGBA(0,vi02)		; store rgba
 	nop				ibne vi01,vi00,PostLightLoop
 	nop				iaddiu vi02,vi02,numInAttribs
 .endif

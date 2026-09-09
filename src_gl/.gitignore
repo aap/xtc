@@ -1,0 +1,13 @@
+# build products
+/xtc
+/build/
+imgui.ini
+
+# converted models and animations
+*.xm
+*.xan
+*.chk
+*.dff
+
+# screenshots
+*.png

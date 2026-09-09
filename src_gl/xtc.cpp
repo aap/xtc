@@ -2,6 +2,13 @@
 #include "glad/glad.h"
 #include "lodepng/lodepng.h"
 
+// the backend does its uniform maths with glm, the API speaks xmath
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+using glm::value_ptr;
+#define GLM_MAT4(m) (*(const glm::mat4*)(m))
+
 #include <GL/gl.h>
 #include <stdio.h>
 
@@ -20,23 +27,23 @@ const xtcRGBA white = { 255, 255, 255, 255 };
 xtcTexture *textures[8];
 struct {
 	// global
-	mat4 proj;
-	mat4 view;
-	vec3 eyePos;
+	glm::mat4 proj;
+	glm::mat4 view;
+	glm::vec3 eyePos;
 
 	// object
-	mat4 worldMat;
-	mat4 normalMat;
+	glm::mat4 worldMat;
+	glm::mat4 normalMat;
 
 	// light
-	vec4 globalAmbient;
+	glm::vec4 globalAmbient;
 	xtcLight lights[8];
 
 	// mesh
 	xtcMaterial material;
 
 	// skin
-	mat4 boneMatrices[64];
+	glm::mat4 boneMatrices[64];
 } uniformState;
 
 
@@ -58,6 +65,10 @@ struct {
 	X(u_lightDiffuse) \
 	X(u_lightSpecular) \
 	X(u_lightDirection) \
+	X(u_lightMat) \
+	X(u_lightColMat) \
+	X(u_specDir) \
+	X(u_specCol) \
 	X(u_boneMatrices)
 
 struct Program
@@ -102,13 +113,19 @@ printlog(GLuint object)
         free(log);
 }
 
+// prefix, if given, goes in front of the source: the #version line
+// and the pipeline's #defines
 GLint
-compileshader(GLenum type, const char *src)
+compileshader(GLenum type, const char *prefix, const char *src)
 {
 	GLint shader, success;
+	const char *srcs[2] = { prefix, src };
 
 	shader = glCreateShader(type);
-	glShaderSource(shader, 1, &src, NULL);
+	if(prefix)
+		glShaderSource(shader, 2, srcs, NULL);
+	else
+		glShaderSource(shader, 1, &src, NULL);
 	glCompileShader(shader);
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
 	if(!success){
@@ -140,167 +157,248 @@ linkprogram(GLint vs, GLint fs)
 
 #include "inc/shader.vert.inc"
 #include "inc/skin.vert.inc"
+#include "inc/lit.vert.inc"
 #include "inc/shader.frag.inc"
 #include "inc/tex.frag.inc"
 
 
-static xtcShader *curShader;
+static xtcPipeline *curPipe;
 
 void
-xtcSetShader(xtcShader *sh)
+xtcSetPipeline(xtcPipeline *pipe)
 {
-	curShader = sh;
+	curPipe = pipe;
 }
 
-void
-uploadStandardUniforms(void)
+/*
+ * Programs.  Every pipeline has an untextured and a textured program
+ * with the same vertex shader, compiled on first use.
+ */
+
+struct Programs
 {
-	// camera
+	Program plain, tex;
+	int ready;
+};
+
+static void
+buildPrograms(Programs *p, const char *prefix, const char *vsrc)
+{
+	GLint vs = compileshader(GL_VERTEX_SHADER, prefix, vsrc);
+	GLint fs = compileshader(GL_FRAGMENT_SHADER, nil, shader_frag_src);
+	GLint fs_tex = compileshader(GL_FRAGMENT_SHADER, nil, tex_frag_src);
+	p->plain.program = linkprogram(vs, fs);
+	p->tex.program = linkprogram(vs, fs_tex);
+
+#define X(uniform) p->plain.uniform = glGetUniformLocation(p->plain.program, #uniform); \
+		p->tex.uniform = glGetUniformLocation(p->tex.program, #uniform);
+	UNIFORMS
+#undef X
+	p->ready = 1;
+}
+
+static void
+usePrograms(Programs *p, const char *prefix, const char *vsrc)
+{
+	if(!p->ready)
+		buildPrograms(p, prefix, vsrc);
+	if(textures[0])
+		p->tex.Use();
+	else
+		p->plain.Use();
+}
+
+/*
+ * Uniforms
+ */
+
+static void
+uploadCameraUniforms(void)
+{
 	glUniformMatrix4fv(curProg->u_view, 1, GL_FALSE, value_ptr(uniformState.view));
 	glUniformMatrix4fv(curProg->u_proj, 1, GL_FALSE, value_ptr(uniformState.proj));
-	const mat4 &v = uniformState.view;
+	const glm::mat4 &v = uniformState.view;
 	uniformState.eyePos.x = -(v[3][0]*v[0][0] + v[3][1]*v[0][1] + v[3][2]*v[0][2]);
 	uniformState.eyePos.y = -(v[3][0]*v[1][0] + v[3][1]*v[1][1] + v[3][2]*v[1][2]);
 	uniformState.eyePos.z = -(v[3][0]*v[2][0] + v[3][1]*v[2][1] + v[3][2]*v[2][2]);
 	glUniform3fv(curProg->u_eyePos, 1, value_ptr(uniformState.eyePos));
+}
 
-	// world matrix
+static void
+uploadObjectUniforms(void)
+{
 	glUniformMatrix4fv(curProg->u_world, 1, GL_FALSE, value_ptr(uniformState.worldMat));
 	glUniformMatrix4fv(curProg->u_normal, 1, GL_FALSE, value_ptr(uniformState.normalMat));
+}
 
-	// material
+static void
+uploadMaterialUniforms(void)
+{
 	const xtcMaterial &mat = uniformState.material;
-	glUniform4fv(curProg->u_matColorSelector, 1, value_ptr(mat.colorSelector));
-	glUniform4fv(curProg->u_matAmbient, 1, value_ptr(mat.ambient));
-	glUniform4fv(curProg->u_matDiffuse, 1, value_ptr(mat.diffuse));
-	glUniform4fv(curProg->u_matSpecular, 1, value_ptr(mat.specular));
-	glUniform4fv(curProg->u_matEmissive, 1, value_ptr(mat.emissive));
+	glUniform4fv(curProg->u_matColorSelector, 1, &mat.colorSelector.x);
+	glUniform4fv(curProg->u_matAmbient, 1, &mat.ambient.x);
+	glUniform4fv(curProg->u_matDiffuse, 1, &mat.diffuse.x);
+	glUniform4fv(curProg->u_matSpecular, 1, &mat.specular.x);
+	glUniform4fv(curProg->u_matEmissive, 1, &mat.emissive.x);
 	glUniform1f(curProg->u_matShininess, mat.shininess);
+}
 
-	// lighting
+// the one hardcoded light of the default and skin pipelines
+static void
+uploadOneLightUniforms(void)
+{
 	glUniform4fv(curProg->u_ambient, 1, value_ptr(uniformState.globalAmbient));
 	xtcLight &l = uniformState.lights[0];
 	if(l.enabled) {
-		glUniform4fv(curProg->u_lightDiffuse, 1, value_ptr(l.color));
-		glUniform4fv(curProg->u_lightSpecular, 1, value_ptr(l.specColor));
-		glUniform3fv(curProg->u_lightDirection, 1, value_ptr(l.direction));
+		glUniform4fv(curProg->u_lightDiffuse, 1, &l.color.x);
+		glUniform4fv(curProg->u_lightSpecular, 1, &l.specColor.x);
+		glUniform3fv(curProg->u_lightDirection, 1, &l.direction.x);
 	} else {
-		vec4 zero(0.0f);
+		glm::vec4 zero(0.0f);
 		glUniform4fv(curProg->u_lightDiffuse, 1, value_ptr(zero));
 		glUniform4fv(curProg->u_lightSpecular, 1, value_ptr(zero));
 		glUniform3fv(curProg->u_lightDirection, 1, value_ptr(zero));
 	}
 }
 
-static Program defProg, texProg;
-
-void
-uploadDefaultShader(void)
+// the lit pipelines: the enabled directional lights in slot order,
+// transformed into object space and packed into matrices, see xtc.h.
+// this is what the PS2 upload would do on the EE.
+static void
+uploadLitLightUniforms(int nlights)
 {
-	if(textures[0])
-		texProg.Use();
-	else
-		defProg.Use();
+	glm::mat4 lightMat[2], colMat[2];
+	glm::vec3 specDir(0.0f);
+	glm::vec4 specCol(0.0f);
+	int n;
 
-	uploadStandardUniforms();
-}
+	// TODO: like the PS2 upload this assumes an orthogonal world matrix
+	glm::mat4 invWorld = glm::inverse(uniformState.worldMat);
+	// towards the (infinite) viewer, in object space
+	const glm::mat4 &v = uniformState.view;
+	glm::vec3 eye = glm::normalize(glm::vec3(invWorld * glm::vec4(v[0][2], v[1][2], v[2][2], 0.0f)));
 
-static xtcShader defaultShader = { uploadDefaultShader };
-
-xtcShader*
-xtcGetDefaultShader(void)
-{
-	if(defProg.program == 0 || texProg.program == 0) {
-		GLint vs = compileshader(GL_VERTEX_SHADER, shader_vert_src);
-		GLint fs = compileshader(GL_FRAGMENT_SHADER, shader_frag_src);
-		GLint fs_tex = compileshader(GL_FRAGMENT_SHADER, tex_frag_src);
-		defProg.program = linkprogram(vs, fs);
-		texProg.program = linkprogram(vs, fs_tex);
-
-#define X(uniform) defProg.uniform = glGetUniformLocation(defProg.program, #uniform); \
-		texProg.uniform = glGetUniformLocation(defProg.program, #uniform);
-
-		UNIFORMS
-#undef X
+	lightMat[0] = lightMat[1] = glm::mat4(0.0f);
+	colMat[0] = colMat[1] = glm::mat4(0.0f);
+	n = 0;
+	for(u32 i = 0; i < nelem(uniformState.lights) && n < nlights; i++) {
+		xtcLight *l = &uniformState.lights[i];
+		if(!l->enabled || l->type != XTC_LIGHT_DIRECT)
+			continue;
+		// towards the light
+		glm::vec3 d = glm::normalize(glm::vec3(invWorld *
+			glm::vec4(-l->direction.x, -l->direction.y, -l->direction.z, 0.0f)));
+		int m = n/4, r = n%4;
+		// row r of the light matrix, column r of the colour matrix
+		lightMat[m][0][r] = d.x;
+		lightMat[m][1][r] = d.y;
+		lightMat[m][2][r] = d.z;
+		colMat[m][r] = glm::vec4(l->color.x, l->color.y, l->color.z, 0.0f);
+		if(n == 0) {
+			specDir = glm::normalize(d + eye);
+			specCol = glm::vec4(l->specColor.x, l->specColor.y, l->specColor.z, 0.0f);
+		}
+		n++;
 	}
 
-	return &defaultShader;
+	glUniform4fv(curProg->u_ambient, 1, value_ptr(uniformState.globalAmbient));
+	glUniformMatrix4fv(curProg->u_lightMat, nlights/4, GL_FALSE, value_ptr(lightMat[0]));
+	glUniformMatrix4fv(curProg->u_lightColMat, nlights/4, GL_FALSE, value_ptr(colMat[0]));
+	glUniform3fv(curProg->u_specDir, 1, value_ptr(specDir));
+	glUniform4fv(curProg->u_specCol, 1, value_ptr(specCol));
 }
 
+/*
+ * Pipelines
+ */
 
-static Program skinProg, skinTexProg;
+static Programs defProgs, skinProgs, lit4Progs, lit8Progs;
 
-void
-uploadSkinShader(void)
+static void
+uploadDefault(void)
 {
-	if(textures[0])
-		skinTexProg.Use();
-	else
-		skinProg.Use();
+	usePrograms(&defProgs, nil, shader_vert_src);
+	uploadCameraUniforms();
+	uploadObjectUniforms();
+	uploadMaterialUniforms();
+	uploadOneLightUniforms();
+}
 
-	uploadStandardUniforms();
-
-	// skinning
+static void
+uploadSkin(void)
+{
+	usePrograms(&skinProgs, nil, skin_vert_src);
+	uploadCameraUniforms();
+	uploadObjectUniforms();
+	uploadMaterialUniforms();
+	uploadOneLightUniforms();
 	glUniformMatrix4fv(curProg->u_boneMatrices, 64, GL_FALSE, value_ptr(uniformState.boneMatrices[0]));
 }
 
-static xtcShader skinShader = { uploadSkinShader };
-
-xtcShader*
-xtcGetSkinShader(void)
+static void
+uploadLit4(void)
 {
-	if(skinProg.program == 0 || skinTexProg.program == 0) {
-		GLint vs = compileshader(GL_VERTEX_SHADER, skin_vert_src);
-		GLint fs = compileshader(GL_FRAGMENT_SHADER, shader_frag_src);
-		GLint fs_tex = compileshader(GL_FRAGMENT_SHADER, tex_frag_src);
-		skinProg.program = linkprogram(vs, fs);
-		skinTexProg.program = linkprogram(vs, fs_tex);
-
-#define X(uniform) skinProg.uniform = glGetUniformLocation(skinProg.program, #uniform); \
-		skinTexProg.uniform = glGetUniformLocation(skinProg.program, #uniform);
-
-		UNIFORMS
-#undef X
-	}
-
-	return &skinShader;
+	usePrograms(&lit4Progs, "#version 460\n#define NLIGHTS 4\n", lit_vert_src);
+	uploadCameraUniforms();
+	uploadObjectUniforms();
+	uploadMaterialUniforms();
+	uploadLitLightUniforms(4);
 }
+
+static void
+uploadLit8(void)
+{
+	usePrograms(&lit8Progs, "#version 460\n#define NLIGHTS 8\n", lit_vert_src);
+	uploadCameraUniforms();
+	uploadObjectUniforms();
+	uploadMaterialUniforms();
+	uploadLitLightUniforms(8);
+}
+
+static xtcPipeline defaultPipe = { uploadDefault };
+static xtcPipeline skinPipe = { uploadSkin };
+static xtcPipeline lit4Pipe = { uploadLit4 };
+static xtcPipeline lit8Pipe = { uploadLit8 };
+xtcPipeline *defaultPipeline = &defaultPipe;
+xtcPipeline *skinPipeline = &skinPipe;
+xtcPipeline *lit4Pipeline = &lit4Pipe;
+xtcPipeline *lit8Pipeline = &lit8Pipe;
 
 
 void
-xtcSetProjectionMatrix(const mat4 *proj)
+xtcSetProjectionMatrix(const Mat4 *proj)
 {
-	uniformState.proj = *proj;
+	uniformState.proj = GLM_MAT4(proj);
 }
 
 void
-xtcSetViewMatrix(const mat4 *view)
+xtcSetViewMatrix(const Mat4 *view)
 {
-	uniformState.view = *view;
+	uniformState.view = GLM_MAT4(view);
 }
 
 void
-xtcSetWorldMatrix(const mat4 *world)
+xtcSetWorldMatrix(const Mat4 *world)
 {
-	uniformState.worldMat = *world;
-	uniformState.normalMat = glm::inverse(glm::transpose(*world));
+	uniformState.worldMat = GLM_MAT4(world);
+	uniformState.normalMat = glm::inverse(glm::transpose(uniformState.worldMat));
 }
 void
-xtcSetWorldMatrix(const mat4 &world)
+xtcSetWorldMatrix(const Mat4 &world)
 {
 	xtcSetWorldMatrix(&world);
 }
 
-mat4
+Mat4
 xtcGetWorldMatrix(void)
 {
-	return uniformState.worldMat;
+	return *(const Mat4*)&uniformState.worldMat;
 }
 
 void
 xtcSetAmbient(int r, int g, int b)
 {
-	uniformState.globalAmbient = vec4(r, g, b, 255)/255.0f;
+	uniformState.globalAmbient = glm::vec4(r, g, b, 255)/255.0f;
 }
 
 void
@@ -319,7 +417,7 @@ xtcSetMaterial(const xtcMaterial *mat)
 
 
 void
-xtcSetTexture(int n, xtcTexture *tex)
+xtcSetTextureN(int n, xtcTexture *tex)
 {
 	if(n < 0 || (u32)n >= nelem(textures))
 		return;
@@ -331,10 +429,11 @@ xtcSetTexture(int n, xtcTexture *tex)
 }
 
 void
-xtcSetBoneMatrices(const mat4 *matrices, int n)
+xtcSetBoneMatrices(const Mat4 *matrices, int n)
 {
 	if(n > 64) n = 64;
-	memcpy(uniformState.boneMatrices, matrices, n*sizeof(mat4));
+	for(int i = 0; i < n; i++)
+		uniformState.boneMatrices[i] = GLM_MAT4(&matrices[i]);
 }
 
 
@@ -481,7 +580,7 @@ flip(u8 *texdata, u32 width, u32 height)
 }
 
 xtcTexture*
-xtcCreateTexturePNG(u8 *data, u32 size)
+xtcTextureReadPNG(const u8 *data, u32 size)
 {
 	u8 *texdata;
 	u32 width, height;
@@ -568,7 +667,7 @@ xtcPrimListSetData(xtcPrimList *pl, xtcPrimType primType, u32 numVertices, xtcIm
 	glVertexArrayAttribFormat(pl->vao, 0, 3, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, pos));
 	glVertexArrayAttribFormat(pl->vao, 1, 4, GL_UNSIGNED_BYTE, GL_TRUE, offsetof(xtcImmVertex3D, color));
 	glVertexArrayAttribFormat(pl->vao, 2, 3, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, normal));
-	glVertexArrayAttribFormat(pl->vao, 3, 2, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, texcoord));
+	glVertexArrayAttribFormat(pl->vao, 3, 3, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, texcoord));
 	glVertexArrayAttribIFormat(pl->vao, 4, 4, GL_UNSIGNED_BYTE, offsetof(xtcImmVertex3D, indices));
 	glVertexArrayAttribFormat(pl->vao, 5, 4, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, weights));
 	glVertexArrayAttribBinding(pl->vao, 0, 0);
@@ -595,7 +694,7 @@ xtcCreatePrimList(xtcPrimType primType, u32 numVertices, xtcImmVertex3D *vertice
 void
 xtcPrimListDraw(xtcPrimList *pl)
 {
-	curShader->upload();
+	curPipe->upload();
 
 	glBindVertexArray(pl->vao);
 	glDrawArrays(primMap[pl->primType], 0, pl->numVertices);
@@ -611,7 +710,7 @@ ImmState immstate;
 void
 xtcInit(void)
 {
-	xtcSetShader(xtcGetDefaultShader());
+	xtcSetPipeline(defaultPipeline);
 
 	glCreateVertexArrays(1, &immstate.vao);
 }
@@ -621,13 +720,13 @@ xtcBegin(xtcPrimType prim)
 {
 	immstate.primType = prim;
 	immstate.vertstore.clear();
-	immstate.vert.pos = vec3(0.0f);
+	immstate.vert.pos = vec3(0.0f, 0.0f, 0.0f);
 	immstate.vert.color = white;
-	immstate.vert.normal = vec3(0.0f);
-	immstate.vert.texcoord = vec2(0.0f);
+	immstate.vert.normal = vec3(0.0f, 0.0f, 0.0f);
+	immstate.vert.texcoord = vec3(0.0f, 0.0f, 1.0f);
 
 	if(curList == nil)
-		curShader->upload();
+		curPipe->upload();
 }
 
 void
@@ -650,7 +749,7 @@ xtcFlush(void)
 	glVertexArrayAttribFormat(immstate.vao, 0, 3, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, pos));
 	glVertexArrayAttribFormat(immstate.vao, 1, 4, GL_UNSIGNED_BYTE, GL_TRUE, offsetof(xtcImmVertex3D, color));
 	glVertexArrayAttribFormat(immstate.vao, 2, 3, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, normal));
-	glVertexArrayAttribFormat(immstate.vao, 3, 2, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, texcoord));
+	glVertexArrayAttribFormat(immstate.vao, 3, 3, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, texcoord));
 	glVertexArrayAttribFormat(immstate.vao, 4, 4, GL_UNSIGNED_BYTE, GL_FALSE, offsetof(xtcImmVertex3D, indices));
 	glVertexArrayAttribFormat(immstate.vao, 5, 4, GL_FLOAT, GL_FALSE, offsetof(xtcImmVertex3D, weights));
 	glVertexArrayAttribBinding(immstate.vao, 0, 0);
@@ -682,6 +781,12 @@ xtcEnd(void)
 }
 
 void
+xtcPointSize(float size)
+{
+	glPointSize(size);
+}
+
+void
 xtcVertex3(float x, float y, float z)
 {
 	immstate.vert.pos.x = x;
@@ -690,7 +795,7 @@ xtcVertex3(float x, float y, float z)
 	immstate.vertstore.push_back(immstate.vert);
 }
 void
-xtcVertex3v(const vec3 &xyz)
+xtcVertex3v(const Vec3 &xyz)
 {
 	immstate.vert.pos = xyz;
 	immstate.vertstore.push_back(immstate.vert);
@@ -718,21 +823,25 @@ xtcNormal(float x, float y, float z)
 	immstate.vert.normal.z = z;
 }
 void
-xtcNormalv(const vec3 &xyz)
+xtcNormalv(const Vec3 &xyz)
 {
 	immstate.vert.normal = xyz;
 }
 
 void
-xtcTexCoord(float s, float t)
+xtcTexCoord2(float s, float t)
 {
-	immstate.vert.texcoord.x = s;
-	immstate.vert.texcoord.y = t;
+	immstate.vert.texcoord = vec3(s, t, 1.0f);
 }
 void
-xtcTexCoordv(const vec2 &st)
+xtcTexCoord3(float s, float t, float q)
 {
-	immstate.vert.texcoord = st;
+	immstate.vert.texcoord = vec3(s, t, q);
+}
+void
+xtcTexCoordv(const Vec2 &st)
+{
+	immstate.vert.texcoord = vec3(st.x, st.y, 1.0f);
 }
 
 void

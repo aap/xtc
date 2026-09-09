@@ -1,0 +1,427 @@
+;; standard fixed function shading
+;;
+;;           Em
+;; +         Am * Al
+;; + sum(d * Dm * Dl)		d = max(0,dot(L,N))
+;; + sum(s * Sm * Sl)
+;; a = Dm.a
+;;
+;; ideally [EADS]m can be per-vertex or global
+;; PSP implements this as a bitmask for [ADS]
+
+;; RW does:
+;;             Pre
+;; [ +         am * Al  ] * C
+;;   + sum(d * dm * Dl)
+;; a = Pre * C
+
+;; In microcode we do:
+;; [A + V*B + sum(d * D_i)] * C
+;;   A = lightBase
+;;   B = vertFactor
+;;   C = colorScale (vf25)
+;;   D_i = color of directional i
+;;   [] = clamp to colorClamp
+;;
+;; No specular light yet
+;; could store in color alpha for opaque meshes
+;; or overwrite input normal by second color for second pass
+;;
+;; alpha is in all cases: [V.a]*C.a
+
+;; [A + V] * C
+LtWhiteV:
+.if 1
+	nop				xtop vi02			; input pointer
+	nop				isubiu vi04,vi03,4*numInAttribs	; last group of 4
+	nop				lq vf20,lightBase(vi00)
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
+	nop				lq vf03,IN_RGBA(1,vi02)		; load rgba
+	nop				lq vf04,IN_RGBA(2,vi02)		; load rgba
+	nop				lq vf05,IN_RGBA(3,vi02)		; load rgba
+	add.xyz vf02,vf02,vf20		lq vf23,colorClamp(vi00)
+	add.xyz vf03,vf03,vf20		nop
+	add.xyz vf04,vf04,vf20		nop
+	add.xyz vf05,vf05,vf20		nop
+	mini vf06,vf02,vf23		nop
+	mini vf07,vf03,vf23		nop
+	mini vf08,vf04,vf23		nop
+	mini vf09,vf05,vf23		nop
+LtWhiteV_Loop:	; 12 cycles - 4 verts
+	mul vf06,vf06,vf25		  lq vf02,IN_RGBA(0+4,vi02)	; load rgba
+	mul vf07,vf07,vf25		  lq vf03,IN_RGBA(1+4,vi02)	; load rgba
+	mul vf08,vf08,vf25		  lq vf04,IN_RGBA(2+4,vi02)	; load rgba
+	mul vf09,vf09,vf25		  lq vf05,IN_RGBA(3+4,vi02)	; load rgba
+	  add.xyz vf02,vf02,vf20	sq vf06,IN_RGBA(0,vi02)		; store rgba
+	  add.xyz vf03,vf03,vf20	sq vf07,IN_RGBA(1,vi02)		; store rgba
+	  add.xyz vf04,vf04,vf20	sq vf08,IN_RGBA(2,vi02)		; store rgba
+	  add.xyz vf05,vf05,vf20	sq vf09,IN_RGBA(3,vi02)		; store rgba
+	  mini vf06,vf02,vf23		nop
+	  mini vf07,vf03,vf23		nop
+	  mini vf08,vf04,vf23		ibne vi02,vi04,LtWhiteV_Loop
+	  mini vf09,vf05,vf23		iaddiu vi02,vi02,4*numInAttribs
+.else
+	nop				lq vf20,lightBase(vi00)
+	nop				xtop vi02			; input pointer
+	nop				xitop vi01			; vertex count
+LtWhiteV_Loop:
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
+	nop				nop
+	nop				nop
+	nop				nop
+	add.xyz vf02,vf02,vf20		lq vf23,colorClamp(vi00)
+	nop 				isubiu vi01,vi01,1
+	nop				nop
+	nop				nop
+	mini vf02,vf02,vf23		nop
+	nop				nop
+	nop				nop
+	nop				nop
+	mul vf02,vf02,vf25		nop				; color scale
+	nop				nop
+	nop				iaddiu vi02,vi02,numInAttribs
+	nop				ibne vi01,vi00,LtWhiteV_Loop
+	nop				sq vf02,IN_RGBA(-1,vi02)	; store rgba
+.endif
+	nop				jr vi15
+	nop				nop
+
+
+;; [A + V*B] * C
+LtBaseV:
+	nop				lq vf21,vertFactor(vi00)
+	nop				xtop vi02			; input pointer
+	nop				isubiu vi04,vi03,4*numInAttribs	; last group of 4
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
+	nop				lq vf03,IN_RGBA(1,vi02)		; load rgba
+	nop				lq vf04,IN_RGBA(2,vi02)		; load rgba
+	nop				lq vf05,IN_RGBA(3,vi02)		; load rgba
+	mul.xyz vf02,vf02,vf21		lq vf20,lightBase(vi00)
+	mul.xyz vf03,vf03,vf21		nop
+	mul.xyz vf04,vf04,vf21		nop
+	mul.xyz vf05,vf05,vf21		nop
+	add.xyz vf02,vf02,vf20		lq vf23,colorClamp(vi00)
+	add.xyz vf03,vf03,vf20		nop
+	add.xyz vf04,vf04,vf20		nop
+	add.xyz vf05,vf05,vf20		nop
+	mini vf06,vf02,vf23		nop
+	mini vf07,vf03,vf23		nop
+	mini vf08,vf04,vf23		nop
+	mini vf09,vf05,vf23		nop
+LtBaseV_Loop:	; 16 cycles - 4 verts
+	mul vf06,vf06,vf25		  lq vf02,IN_RGBA(0+4,vi02)	; load rgba
+	mul vf07,vf07,vf25		  lq vf03,IN_RGBA(1+4,vi02)	; load rgba
+	mul vf08,vf08,vf25		  lq vf04,IN_RGBA(2+4,vi02)	; load rgba
+	mul vf09,vf09,vf25		  lq vf05,IN_RGBA(3+4,vi02)	; load rgba
+	  mul.xyz vf02,vf02,vf21		nop
+	  mul.xyz vf03,vf03,vf21		nop
+	  mul.xyz vf04,vf04,vf21		nop
+	  mul.xyz vf05,vf05,vf21		nop
+	  add.xyz vf02,vf02,vf20	sq vf06,IN_RGBA(0,vi02)		; store rgba
+	  add.xyz vf03,vf03,vf20	sq vf07,IN_RGBA(1,vi02)		; store rgba
+	  add.xyz vf04,vf04,vf20	sq vf08,IN_RGBA(2,vi02)		; store rgba
+	  add.xyz vf05,vf05,vf20	sq vf09,IN_RGBA(3,vi02)		; store rgba
+	  mini vf06,vf02,vf23		nop
+	  mini vf07,vf03,vf23		nop
+	  mini vf08,vf04,vf23		ibne vi02,vi04,LtBaseV_Loop
+	  mini vf09,vf05,vf23		iaddiu vi02,vi02,4*numInAttribs
+	nop				jr vi15
+	nop				nop
+
+
+;; [A + V*B + sum(d * Dl)] * C
+LtBaseVDir:
+.if 1
+	nop				xtop vi02			; input pointer
+	nop				lq vf03,IN_NORMAL(0,vi02)	; load normal
+	nop				lq vf13,lightDirs+0(vi00)
+	nop				lq vf14,lightDirs+1(vi00)
+	nop				lq vf15,lightDirs+2(vi00)
+	nop				nop
+	mulax acc,vf13,vf03		nop				; four directionals
+	madday acc,vf14,vf03		nop
+	maddz vf04,vf15,vf03		lq vf21,vertFactor(vi00)
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
+	nop				lq vf20,lightBase(vi00)
+	nop				nop
+	maxx vf04,vf04,vf00		lq vf16,lightCols+0(vi00)	; clamp light factors
+	mula acc,vf02,vf21		lq vf17,lightCols+1(vi00)	; vertex color as emissive
+	maddaw acc,vf20,vf00		lq vf18,lightCols+2(vi00)	; global base light
+	nop				lq vf19,lightCols+3(vi00)
+	maddax acc,vf16,vf04		  lq vf03,IN_NORMAL(1,vi02)	; four directionals
+	madday acc,vf17,vf04		lq vf23,colorClamp(vi00)
+	maddaz acc,vf18,vf04		nop
+	maddw.xyz vf05,vf19,vf04	xitop vi01			; - vertex count
+;; TODO? could premultiply lightCols with vertex color for DirV effect,
+;;	only 16 cycles then if we divide Cols by 255 on upload
+LtBaseVDir_Loop:		; 14 cycles
+	  mulax acc,vf13,vf03		move.w vf05,vf02		; four directionals
+	  madday acc,vf14,vf03		nop
+	  maddz vf04,vf15,vf03		nop
+	nop				  lq vf02,IN_RGBA(1,vi02)
+	nop				nop
+	mini vf05,vf05,vf23		nop
+	  maxx vf04,vf04,vf00		isubiu vi01,vi01,1		
+	  mula acc,vf02,vf21		nop
+	  maddaw acc,vf20,vf00		nop
+	mul vf06,vf05,vf25		nop				; color scale
+	  maddax acc,vf16,vf04		    lq vf03,IN_NORMAL(2,vi02)
+	  madday acc,vf17,vf04		iaddiu vi02,vi02,numInAttribs
+	  maddaz acc,vf18,vf04		ibne vi01,vi00,LtBaseVDir_Loop
+	  maddw vf05,vf19,vf04		sq vf06,IN_RGBA(-1,vi02)	; store rgba
+.else
+	nop				lq vf20,lightBase(vi00)
+	nop				lq vf21,vertFactor(vi00)
+	nop				lq vf13,lightDirs+0(vi00)
+	nop				lq vf14,lightDirs+1(vi00)
+	nop				lq vf15,lightDirs+2(vi00)
+	nop				lq vf16,lightCols+0(vi00)
+	nop				lq vf17,lightCols+1(vi00)
+	nop				lq vf18,lightCols+2(vi00)
+	nop				lq vf19,lightCols+3(vi00)
+	nop				xtop vi02			; input pointer
+	nop				xitop vi01			; vertex count
+LtBaseVDir_Loop:
+	nop				lq vf03,IN_NORMAL(0,vi02)	; load normal
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
+	nop				nop
+	nop				nop
+	mulax acc,vf13,vf03		nop				; four directionals
+	madday acc,vf14,vf03		nop
+	maddz vf04,vf15,vf03		nop
+	nop				nop
+	nop				nop
+	nop				nop
+	maxx vf04,vf04,vf00		nop				; clamp light factors
+	nop				nop
+	mula acc,vf02,vf21		nop				; vertex color as emissive
+	maddaw acc,vf20,vf00		nop				; global base light
+	maddax acc,vf16,vf04		nop				; four diffuse
+	madday acc,vf17,vf04		nop
+	maddaz acc,vf18,vf04		nop
+	maddw.xyz vf02,vf19,vf04	lq vf23,colorClamp(vi00)
+	nop				nop
+	nop				nop
+	nop				nop
+	mini vf02,vf02,vf23		nop
+	nop				isubiu vi01,vi01,1
+	nop				nop
+	nop				nop
+	mul vf02,vf02,vf25		nop				; color scale
+	nop				nop
+	nop				iaddiu vi02,vi02,numInAttribs
+	nop				ibne vi01,vi00,LtBaseVDir_Loop
+	nop				sq vf02,IN_RGBA(-1,vi02)	; store rgba
+.endif
+	nop				jr vi15
+	nop				nop
+
+
+;; [A + V*B + V/255*sum(d * Dl)] * C
+LtBaseVDirV:
+.if 1
+	nop				xtop vi02			; input pointer
+	nop				lq vf03,IN_NORMAL(0,vi02)	; load normal
+	nop				lq vf13,lightDirs+0(vi00)
+	nop				lq vf14,lightDirs+1(vi00)
+	nop				lq vf15,lightDirs+2(vi00)
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
+	mulax acc,vf13,vf03		nop				; 4 light-dir dot products
+	madday acc,vf14,vf03		nop
+	maddz vf04,vf15,vf03		nop
+	nop				loi 0.00392156862745098
+	nop				lq vf20,lightBase(vi00)
+	nop				lq vf21,vertFactor(vi00)
+	maxx vf04,vf04,vf00		lq vf16,lightCols+0(vi00)	; clamp light factors
+	nop				lq vf17,lightCols+1(vi00)
+	muli vf06,vf02,i		lq vf18,lightCols+2(vi00)
+	nop				lq vf19,lightCols+3(vi00)
+	mulax acc,vf16,vf04		nop				; four directionals
+	madday acc,vf17,vf04		xitop vi01			; vertex count
+LtBaseVDirV_Loop:		; 18 cycles
+	maddaz acc,vf18,vf04		nop
+	maddw vf09,vf19,vf04		nop
+	nop				  lq vf03,IN_NORMAL(1,vi02)
+	mula acc,vf02,vf21		nop				; V*B
+	maddaw acc,vf20,vf00		nop				;  + A
+	madd.xyz vf02,vf09,vf06		lq vf23,colorClamp(vi00)	;  + sum(Dir)*V
+	  mulax acc,vf13,vf03		nop
+	  madday acc,vf14,vf03		nop
+	  maddz vf04,vf15,vf03		nop
+	mini vf07,vf02,vf23		isubiu vi01,vi01,1
+	nop				nop
+	nop				  lq vf02,IN_RGBA(1,vi02)
+	  maxx vf04,vf04,vf00		nop
+	mul vf07,vf07,vf25		nop				; color scale
+	nop				nop
+	  muli vf06,vf02,i		iaddiu vi02,vi02,numInAttribs
+	  mulax acc,vf16,vf04		ibne vi01,vi00,LtBaseVDirV_Loop
+	  madday acc,vf17,vf04		sq vf07,IN_RGBA(-1,vi02)	; store rgba
+.else
+	nop				lq vf20,lightBase(vi00)
+	nop				lq vf21,vertFactor(vi00)
+	nop				lq vf13,lightDirs+0(vi00)
+	nop				lq vf14,lightDirs+1(vi00)
+	nop				lq vf15,lightDirs+2(vi00)
+	nop				lq vf16,lightCols+0(vi00)
+	nop				lq vf17,lightCols+1(vi00)
+	nop				lq vf18,lightCols+2(vi00)
+	nop				lq vf19,lightCols+3(vi00)
+	nop				xtop vi02			; input pointer
+	nop				xitop vi01			; vertex count
+LtBaseVDirV_Loop:
+	nop				lq vf03,IN_NORMAL(0,vi02)		; load normal
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
+	nop				nop
+	nop				nop
+	mulax acc,vf13,vf03		nop				; four directionals
+	madday acc,vf14,vf03		nop
+	maddz vf04,vf15,vf03		nop
+	nop				nop
+	nop				nop
+	nop				nop
+	maxx vf04,vf04,vf00		nop				; clamp light factors
+	nop				loi 0.00392156862745098
+	muli vf06,vf02,i		nop
+	nop				nop
+	mulax acc,vf16,vf04		nop				; four diffuse
+	madday acc,vf17,vf04		nop
+	maddaz acc,vf18,vf04		nop
+	maddw vf09,vf19,vf04		nop				; total dir color
+	nop				nop
+	mula acc,vf02,vf21		nop				; V*B
+	maddaw acc,vf20,vf00		nop				;  + A
+	madd.xyz vf02,vf09,vf06		lq vf23,colorClamp(vi00)	;  + sum(Dir)*V
+	nop				nop
+	nop				nop
+	nop				nop
+	mini vf02,vf02,vf23		nop				; color clamp
+	nop				nop
+	nop				nop
+	nop				nop
+	mul vf02,vf02,vf25		nop				; color scale
+	nop				isubiu vi01,vi01,1
+	nop				iaddiu vi02,vi02,numInAttribs
+	nop				ibne vi01,vi00,LtBaseVDirV_Loop
+	nop				sq vf02,IN_RGBA(-1,vi02)		; store rgba
+.endif
+	nop				jr vi15
+	nop				nop
+
+
+;; [A + V*B + sum(d * Dl)] * C
+LtBaseVDir8:
+.if 1
+	nop				xtop vi02			; input pointer
+	nop				lq vf03,IN_NORMAL(0,vi02)	; load normal
+	nop				lq vf13,lightDirs+0(vi00)
+	nop				lq vf14,lightDirs+1(vi00)
+	nop				lq vf15,lightDirs+2(vi00)
+	nop				lq vf06,lightDirs2+0(vi00)
+	mulax acc,vf13,vf03		lq vf07,lightDirs2+1(vi00)	; four directionals
+	madday acc,vf14,vf03		lq vf08,lightDirs2+2(vi00)
+	maddz vf04,vf15,vf03		lq vf21,vertFactor(vi00)
+	mulax acc,vf06,vf03		lq vf02,IN_RGBA(0,vi02)		; another four directionals - load rgba
+	madday acc,vf07,vf03		lq vf20,lightBase(vi00)
+	maddz vf05,vf08,vf03		lq vf16,lightCols+0(vi00)
+	maxx vf04,vf04,vf00		lq vf17,lightCols+1(vi00)	; clamp light contribution, (ReLu)
+	mula acc,vf02,vf21		lq vf18,lightCols+2(vi00)	; vertex color as emissive
+	maddaw acc,vf20,vf00		lq vf19,lightCols+3(vi00)	; global base light
+	maxx vf05,vf05,vf00		xitop vi01			; vertex count
+LtBaseVDir8_Loop:		; 20 cycles
+	maddax acc,vf16,vf04		lq vf09,lightCols2+0(vi00)	; four diffuse
+	madday acc,vf17,vf04		lq vf10,lightCols2+1(vi00)
+	maddaz acc,vf18,vf04		lq vf11,lightCols2+2(vi00)
+	maddaw acc,vf19,vf04		lq vf12,lightCols2+3(vi00)
+	maddax acc,vf09,vf05		  lq vf03,IN_NORMAL(1,vi02)	; another four
+	madday acc,vf10,vf05		nop
+	maddaz acc,vf11,vf05		nop
+	maddw.xyz vf02,vf12,vf05	lq vf23,colorClamp(vi00)
+	  mulax acc,vf13,vf03		nop				; next four directionals
+	  madday acc,vf14,vf03		nop
+	  maddz vf04,vf15,vf03		nop
+	mini vf10,vf02,vf23		nop				; clamp color
+	  mulax acc,vf06,vf03		isubiu vi01,vi01,1		; another next four directionals
+	  madday acc,vf07,vf03		  lq vf02,IN_RGBA(1,vi02)
+	  maddz vf05,vf08,vf03		nop
+	mul vf10,vf10,vf25		nop				; color scale
+	  maxx vf04,vf04,vf00		nop				; clamp light factors
+	  mula acc,vf02,vf21		iaddiu vi02,vi02,numInAttribs	; vertex color as emissive
+	  maddaw acc,vf20,vf00		ibne vi01,vi00,LtBaseVDir8_Loop	; global base light
+	  maxx vf05,vf05,vf00		sq vf10,IN_RGBA(-1,vi02)	; clamp light factors - store rgba
+.else
+	nop				lq vf20,lightBase(vi00)
+	nop				lq vf21,vertFactor(vi00)
+	nop				lq vf13,lightDirs+0(vi00)
+	nop				lq vf14,lightDirs+1(vi00)
+	nop				lq vf15,lightDirs+2(vi00)
+	nop				lq vf16,lightCols+0(vi00)
+	nop				lq vf17,lightCols+1(vi00)
+	nop				lq vf18,lightCols+2(vi00)
+	nop				lq vf19,lightCols+3(vi00)
+	nop				lq vf06,lightDirs2+0(vi00)
+	nop				lq vf07,lightDirs2+1(vi00)
+	nop				lq vf08,lightDirs2+2(vi00)
+	nop				lq vf09,lightCols2+0(vi00)
+	nop				lq vf10,lightCols2+1(vi00)
+	nop				lq vf11,lightCols2+2(vi00)
+	nop				lq vf12,lightCols2+3(vi00)
+	nop				xtop vi02			; input pointer
+	nop				xitop vi01			; vertex count
+LtBaseVDir8_Loop:
+	nop				lq vf03,IN_NORMAL(0,vi02)		; load normal
+	nop				lq vf02,IN_RGBA(0,vi02)		; load rgba
+	nop				nop
+	nop				nop
+	mulax acc,vf13,vf03		nop				; 4 light-dir dot products
+	madday acc,vf14,vf03		nop
+	maddz vf04,vf15,vf03		nop
+;--
+	mulax acc,vf06,vf03		nop				; 4 light-dir dot products
+	madday acc,vf07,vf03		nop
+	maddz vf05,vf08,vf03		nop
+	maxx vf04,vf04,vf00		nop				; clamp light contribution, (ReLu)
+	mula acc,vf02,vf21		nop				; vertex color as emissive
+	maddaw acc,vf20,vf00		nop				; global base light
+	maxx vf05,vf05,vf00		nop
+;--
+	maddax acc,vf16,vf04		nop				; four directionals
+	madday acc,vf17,vf04		nop
+	maddaz acc,vf18,vf04		nop
+	maddaw acc,vf19,vf04		nop
+	maddax acc,vf09,vf05		nop				; another four
+	madday acc,vf10,vf05		nop
+	maddaz acc,vf11,vf05		nop
+	maddw.xyz vf02,vf12,vf05	lq vf23,colorClamp(vi00)
+	nop				nop
+	nop				nop
+	nop				nop
+	mini vf02,vf02,vf23		nop				; clamp color
+	nop				isubiu vi01,vi01,1
+	nop				nop
+	nop				nop
+	mul vf02,vf02,vf25		nop				; color scale
+	nop				nop
+	nop				iaddiu vi02,vi02,numInAttribs
+	nop				ibne vi01,vi00,LtBaseVDir8_Loop
+	nop				sq vf02,IN_RGBA(-1,vi02)	; store rgba
+.endif
+	nop				jr vi15
+	nop				nop
+
+
+
+
+;; old notes, disregard
+;;
+;; TODO:
+;; Em + V*Al  + sum(d * Dl)
+;; Em + Am*Al + sum(d * V * Dl)
+;; V + V*Al + sum(d * V * Dl) = (1 + Al + sum(d * Dl)) * V
+;;
+;; V*A + B free in 1-vertex acc-loops (dir light)
+;;  -> Em + V*Al	(A=Al, B=Em)
+;;     V  +   Am	(A=1,  B=Am)
+
+
+;; [(C + Al + sum(d * Dl)) * V] ??

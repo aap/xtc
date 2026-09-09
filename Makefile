@@ -3,7 +3,7 @@ CXX=ee-g++
 
 TARGET=xtcdemo
 
-SRCDIRS := src src/vu1
+SRCDIRS := src src/vu1 src/data
 OBJDIR := build
 
 # mdma is a sibling checkout, built with our compiler and our flags:
@@ -45,7 +45,7 @@ INC := $(addprefix -I,$(SRCDIRS))	\
 
 $(TARGET).elf: build/crt0.o $(OBJ) $(MDMAOBJ)
 	echo $(OBJ)
-	$(CXX) -o $@ $(CRT_BEGIN) $(OBJ) $(MDMAOBJ) $(LIBS) $(CRT_END) -T /usr/local/sce/ee/lib/app.cmd -L/usr/local/sce/ee/lib -lm -nostartfiles -Wl,--gc-sections
+	$(CXX) -o $@ $(CRT_BEGIN) $(OBJ) $(MDMAOBJ) $(LIBS) $(CRT_END) -T /usr/local/sce/ee/lib/app.cmd -L/usr/local/sce/ee/lib -lm -nostartfiles
 
 run: $(TARGET).elf
 	dsedb -r run $(TARGET).elf
@@ -58,7 +58,10 @@ $(OBJDIR)/%.o: $(OBJDIR)/%.dsm_x
 	@mkdir -p $(@D)
 	ee-dvp-as -alm=$(@:.o=.lst) $(ASINC) -stalls-pipeline -no-fetching $< -o $@
 
-$(OBJDIR)/%.dsm_x: %.dsm
+# the microcode .dsm files #include the .vu/.inc files next to them
+VUINC := $(wildcard src/vu1/*.vu) $(wildcard src/vu1/*.inc)
+
+$(OBJDIR)/%.dsm_x: %.dsm $(VUINC)
 	@mkdir -p $(@D)
 	joinvu $< | cpp $(ASINC) | grep -v '^#' > $@
 
@@ -142,7 +145,7 @@ $(TARGET)_freesce.elf: $(FSOBJ)
 	    $(FSOBJ) \
 	    -Wl,--start-group $(FREESCE_LIBS) -lc -lm -lgcc -Wl,--end-group \
 	    $(FREESCE_LIB)/crtn.o \
-	    -T $(FREESCE_LIB)/app.cmd -L$(FREESCE_LIB) -nostartfiles -Wl,--gc-sections
+	    -T $(FREESCE_LIB)/app.cmd -L$(FREESCE_LIB) -nostartfiles
 
 # freesce's ee-dvp-as is binutils 2.9 and has neither -stalls-pipeline nor
 # -no-fetching. Both are warning options -- hazard reporting, not codegen --
@@ -151,7 +154,7 @@ $(FSOBJDIR)/%.o: $(FSOBJDIR)/%.dsm_x
 	@mkdir -p $(@D)
 	$(FREESCE_GCC)/bin/ee-dvp-as -alm=$(@:.o=.lst) $(ASINC) $< -o $@
 
-$(FSOBJDIR)/%.dsm_x: %.dsm
+$(FSOBJDIR)/%.dsm_x: %.dsm $(VUINC)
 	@mkdir -p $(@D)
 	joinvu $< | cpp $(ASINC) | grep -v '^#' > $@
 

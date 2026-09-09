@@ -16,14 +16,16 @@
 
 EXE = xtc
 IMGUI_DIR = /u/aap/othersrc/imgui
-SOURCES = main.cpp app.cpp conv.cpp xtc.cpp xmodel.cpp xdraw.cpp lua.cpp camera.cpp chunk.c glad/glad.c lodepng/lodepng.cpp tokenize.c assimp_rw.cpp
+COMMON = ../common
+SOURCES = main.cpp app.cpp conv.cpp xtc.cpp lua.cpp glad/glad.c lodepng/lodepng.cpp assimp_rw.cpp
+SOURCES += $(COMMON)/xmodel.cpp $(COMMON)/xanim.cpp $(COMMON)/xdraw.cpp $(COMMON)/chunk.c $(COMMON)/tokenize.c
 SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_demo.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
 SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
 OBJS = $(addprefix build/, $(addsuffix .o, $(basename $(notdir $(SOURCES)))))
 UNAME_S := $(shell uname -s)
-LINUX_GL_LIBS = -lGL -lassimp $(LIBRWGTA)/lib/linux-amd64-null/Release/librwgta.a $(LIBRW)/lib/linux-amd64-null/Release/librw.a
+LINUX_GL_LIBS = -lGL -lassimp $(LIBRWGTA)/lib/linux-amd64-null/Debug/librwgta.a $(LIBRW)/lib/linux-amd64-null/Debug/librw.a
 
-CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(LIBRW) -I$(LIBRWGTA) `pkg-config lua --cflags`
+CXXFLAGS = -DXTC_GL -I. -I$(COMMON) -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(LIBRW) -I$(LIBRWGTA) `pkg-config lua --cflags`
 CXXFLAGS += -g -Wall -Wformat -Wno-multichar
 LIBS = `pkg-config lua --libs`
 
@@ -74,6 +76,10 @@ build/%.o:%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 build/%.o:%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
+build/%.o:$(COMMON)/%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+build/%.o:$(COMMON)/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 build/%.o:glad/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 build/%.o:lodepng/%.cpp
@@ -91,11 +97,25 @@ all: $(EXE)
 $(EXE): $(OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
 
-build/main.o: main.cpp app.h xmodel.h xtc.h
-build/app.o: app.cpp app.h xmodel.h xtc.h
-build/xmodel.o: xmodel.cpp xmodel.h xtc.h
-build/xtc.o: xtc.cpp xtc.h inc/shader.frag.inc inc/shader.vert.inc inc/tex.frag.inc
-build/camera.o: camera.cpp app.h
+XTC_H = xtc.h $(COMMON)/xmath.h
+XMODEL_H = $(COMMON)/xmodel.h $(XTC_H)
+build/main.o: main.cpp app.h $(XTC_H)
+build/app.o: app.cpp app.h $(XMODEL_H)
+build/conv.o: conv.cpp conv.h $(XMODEL_H)
+build/xmodel.o: $(COMMON)/xmodel.cpp $(XMODEL_H) $(COMMON)/chunk.h
+build/xanim.o: $(COMMON)/xanim.cpp $(XMODEL_H)
+build/xdraw.o: $(COMMON)/xdraw.cpp $(XMODEL_H)
+build/chunk.o: $(COMMON)/chunk.c $(COMMON)/chunk.h
+build/lua.o: lua.cpp app.h conv.h assimp_rw.h $(XMODEL_H)
+build/assimp_rw.o: assimp_rw.cpp assimp_rw.h
+build/xtc.o: xtc.cpp $(XTC_H) inc/shader.frag.inc inc/shader.vert.inc inc/skin.vert.inc inc/lit.vert.inc inc/tex.frag.inc
+
+# GLSL sources as C strings, e.g. shader.vert -> inc/shader.vert.inc defining shader_vert_src
+inc/%.inc: %
+	@mkdir -p inc
+	@echo "const char *$(subst .,_,$*)_src =" > $@
+	@sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' $< >> $@
+	@echo ";" >> $@
 
 clean:
 	rm -f $(EXE) $(OBJS)

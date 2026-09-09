@@ -82,7 +82,7 @@ and the lighting complexity.
 Currently all texture uploads are synchronous over PATH2.
 This is of course inefficient and will be improved in the future.
 
-A texture (`xtcRaster`) can currently be loaded from a PNG file
+A texture (`xtcTexture`) can currently be loaded from a PNG file
 and used for rendering with `xtcBindTexture`.
 How exactly multi-pass rendering and multi-texturing will work
 is not clear yet.

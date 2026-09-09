@@ -4,7 +4,12 @@
 #include "glad/glad.h"
 #include <imgui.h>
 
-#include "camera.h"
+#include "conv.h"
+#include "assimp_rw.h"
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 extern "C" {
 #include <lua.h>
@@ -69,22 +74,22 @@ checkobj(lua_State *L, int n, char const *name)
 }
 
 
-static vec2 checkvec2(lua_State *L, int n) { return *(vec2*)luaL_checkudata(L, n, "Vec2"); }
+static Vec2 checkvec2(lua_State *L, int n) { return *(Vec2*)luaL_checkudata(L, n, "Vec2"); }
 static int
-L_pushvec2(lua_State *L, vec2 vec)
+L_pushvec2(lua_State *L, Vec2 vec)
 {
-	vec2 *v = (vec2*)lua_newuserdata(L, sizeof(vec2));
+	Vec2 *v = (Vec2*)lua_newuserdata(L, sizeof(Vec2));
 	*v = vec;
 	luaL_getmetatable(L, "Vec2");
 	lua_setmetatable(L, -2);
 	return 1;
 }
 
-static vec3 checkvec3(lua_State *L, int n) { return *(vec3*)luaL_checkudata(L, n, "Vec3"); }
+static Vec3 checkvec3(lua_State *L, int n) { return *(Vec3*)luaL_checkudata(L, n, "Vec3"); }
 static int
-L_pushvec3(lua_State *L, vec3 vec)
+L_pushvec3(lua_State *L, Vec3 vec)
 {
-	vec3 *v = (vec3*)lua_newuserdata(L, sizeof(vec3));
+	Vec3 *v = (Vec3*)lua_newuserdata(L, sizeof(Vec3));
 	*v = vec;
 	luaL_getmetatable(L, "Vec3");
 	lua_setmetatable(L, -2);
@@ -92,33 +97,32 @@ L_pushvec3(lua_State *L, vec3 vec)
 }
 
 
-static vec4 checkvec4(lua_State *L, int n) { return *(vec4*)luaL_checkudata(L, n, "Vec4"); }
+static Vec4 checkvec4(lua_State *L, int n) { return *(Vec4*)luaL_checkudata(L, n, "Vec4"); }
 static int
-L_pushvec4(lua_State *L, vec4 vec)
+L_pushvec4(lua_State *L, Vec4 vec)
 {
-	vec4 *v = (vec4*)lua_newuserdata(L, sizeof(vec4));
+	Vec4 *v = (Vec4*)lua_newuserdata(L, sizeof(Vec4));
 	*v = vec;
 	luaL_getmetatable(L, "Vec4");
 	lua_setmetatable(L, -2);
 	return 1;
 }
 
-static mat4 *checkmat4(lua_State *L, int n) { return (mat4*)luaL_checkudata(L, n, "Mat4"); }
+static Mat4 *checkmat4(lua_State *L, int n) { return (Mat4*)luaL_checkudata(L, n, "Mat4"); }
 static int
-L_pushmat4(lua_State *L, const mat4 &mat)
+L_pushmat4(lua_State *L, const Mat4 &mat)
 {
-	mat4 *m = (mat4*)lua_newuserdata(L, sizeof(mat4));
+	Mat4 *m = (Mat4*)lua_newuserdata(L, sizeof(Mat4));
 	*m = mat;
 	luaL_getmetatable(L, "Mat4");
 	lua_setmetatable(L, -2);
 	return 1;
 }
 
-static vec4 checkquat(lua_State *L, int n) { return *(vec4*)luaL_checkudata(L, n, "Quat"); }
 static int
-L_pushquat(lua_State *L, quat q)
+L_pushquat(lua_State *L, Quat q)
 {
-	quat *p = (quat*)lua_newuserdata(L, sizeof(quat));
+	Quat *p = (Quat*)lua_newuserdata(L, sizeof(Quat));
 	*p = q;
 	luaL_getmetatable(L, "Quat");
 	lua_setmetatable(L, -2);
@@ -175,13 +179,13 @@ struct_index(lua_State *L, void *v, const char *name, StructDesc *desc)
 			lua_pushnumber(L, *(float*)p);
 			break;
 		case 'v2':
-			L_pushvec2(L, *(vec2*)p);
+			L_pushvec2(L, *(Vec2*)p);
 			break;
 		case 'v3':
-			L_pushvec3(L, *(vec3*)p);
+			L_pushvec3(L, *(Vec3*)p);
 			break;
 		case 'v4':
-			L_pushvec4(L, *(vec4*)p);
+			L_pushvec4(L, *(Vec4*)p);
 			break;
 		case 'v4p':
 			L_pushlptr(L, p, "Vec4p");
@@ -227,30 +231,42 @@ struct_newindex(lua_State *L, void *v, const char *name, StructDesc *desc)
 		*(float*)p = luaL_checknumber(L, 3);
 		break;
 	case 'v2':
-		*(vec2*)p = checkvec2(L, 3);
+		*(Vec2*)p = checkvec2(L, 3);
 		break;
 	case 'v3':
-		*(vec3*)p = checkvec3(L, 3);
+		*(Vec3*)p = checkvec3(L, 3);
 		break;
 	case 'v4':
 	case 'v4p':
-		*(vec4*)p = checkvec4(L, 3);
+		*(Vec4*)p = checkvec4(L, 3);
 		break;
 	}
 	return 1;
 }
 
+#define USERTYPE(type, str) \
+static int type##__index(lua_State *L) { return struct_index(L, luaL_checkudata(L, 1, str), str, type##_desc); } \
+static int type##__newindex(lua_State *L) { return struct_newindex(L, luaL_checkudata(L, 1, str), str, type##_desc); }
 
-static StructDesc vec2desc[] = {
-	{ "x", offsetof(vec3, x), 'f' },
-	{ "y", offsetof(vec3, y), 'f' },
+#define USERTYPEPTR(type, str) \
+static int type##__index(lua_State *L) { return struct_index(L, checklptr(L, 1, str), str, type##_desc); } \
+static int type##__newindex(lua_State *L) { return struct_newindex(L, checklptr(L, 1, str), str, type##_desc); } \
+static int type##__gc(lua_State *L) { freelptr(L, 1, str); return 0; }
+
+#define USERPTR(type, str) \
+static int type##p__index(lua_State *L) { return struct_index(L, checklptr(L, 1, str "p"), str, type##_desc); } \
+static int type##p__newindex(lua_State *L) { return struct_newindex(L, checklptr(L, 1, str "p"), str, type##_desc); } \
+static int type##p__gc(lua_State *L) { freelptr(L, 1, str "p"); return 0; }
+
+static StructDesc vec2_desc[] = {
+	{ "x", offsetof(Vec3, x), 'f' },
+	{ "y", offsetof(Vec3, y), 'f' },
 	{ nil, 0, 0 }
 };
-static int vec2_index(lua_State *L) { return struct_index(L, luaL_checkudata(L, 1, "Vec2"), "Vec2", vec2desc); }
-static int vec2_newindex(lua_State *L) { return struct_newindex(L, luaL_checkudata(L, 1, "Vec2"), "Vec2", vec2desc); }
+USERTYPE(vec2, "Vec2")
 static const luaL_Reg vec2_meta[] = {
-	{ "__index", vec2_index },
-	{ "__newindex", vec2_newindex },
+	{ "__index", vec2__index },
+	{ "__newindex", vec2__newindex },
 	{ nil, nil }
 };
 
@@ -264,17 +280,16 @@ L_vec2(lua_State *L)
 
 
 
-static StructDesc vec3desc[] = {
-	{ "x", offsetof(vec3, x), 'f' },
-	{ "y", offsetof(vec3, y), 'f' },
-	{ "z", offsetof(vec3, z), 'f' },
+static StructDesc vec3_desc[] = {
+	{ "x", offsetof(Vec3, x), 'f' },
+	{ "y", offsetof(Vec3, y), 'f' },
+	{ "z", offsetof(Vec3, z), 'f' },
 	{ nil, 0, 0 }
 };
-static int vec3_index(lua_State *L) { return struct_index(L, luaL_checkudata(L, 1, "Vec3"), "Vec3", vec3desc); }
-static int vec3_newindex(lua_State *L) { return struct_newindex(L, luaL_checkudata(L, 1, "Vec3"), "Vec3", vec3desc); }
+USERTYPE(vec3, "Vec3")
 static const luaL_Reg vec3_meta[] = {
-	{ "__index", vec3_index },
-	{ "__newindex", vec3_newindex },
+	{ "__index", vec3__index },
+	{ "__newindex", vec3__newindex },
 	{ nil, nil }
 };
 
@@ -289,28 +304,25 @@ L_vec3(lua_State *L)
 
 
 
-static StructDesc vec4desc[] = {
-	{ "x", offsetof(vec4, x), 'f' },
-	{ "y", offsetof(vec4, y), 'f' },
-	{ "z", offsetof(vec4, z), 'f' },
-	{ "w", offsetof(vec4, w), 'f' },
+static StructDesc vec4_desc[] = {
+	{ "x", offsetof(Vec4, x), 'f' },
+	{ "y", offsetof(Vec4, y), 'f' },
+	{ "z", offsetof(Vec4, z), 'f' },
+	{ "w", offsetof(Vec4, w), 'f' },
 	{ nil, 0, 0 }
 };
-static int vec4_index(lua_State *L) { return struct_index(L, luaL_checkudata(L, 1, "Vec4"), "Vec4", vec4desc); }
-static int vec4_newindex(lua_State *L) { return struct_newindex(L, luaL_checkudata(L, 1, "Vec4"), "Vec4", vec4desc); }
+USERTYPE(vec4, "Vec4")
 static const luaL_Reg vec4_meta[] = {
-	{ "__index", vec4_index },
-	{ "__newindex", vec4_newindex },
+	{ "__index", vec4__index },
+	{ "__newindex", vec4__newindex },
 	{ nil, nil }
 };
 
-static int vec4p_index(lua_State *L) { return struct_index(L, checklptr(L, 1, "Vec4p"), "Vec4", vec4desc); }
-static int vec4p_newindex(lua_State *L) { return struct_newindex(L, checklptr(L, 1, "Vec4p"), "Vec4", vec4desc); }
-static int vec4p_gc(lua_State *L) { freelptr(L, 1, "Vec4p"); return 0; }
+USERPTR(vec4, "Vec4")
 static const luaL_Reg vec4p_meta[] = {
-	{ "__index", vec4p_index },
-	{ "__newindex", vec4p_newindex },
-	{ "__gc", vec4p_gc },
+	{ "__index", vec4p__index },
+	{ "__newindex", vec4p__newindex },
+	{ "__gc", vec4p__gc },
 	{ nil, nil }
 };
 
@@ -326,52 +338,51 @@ L_vec4(lua_State *L)
 
 
 
-static StructDesc mat4desc[] = {
-	{ "x", 0*sizeof(vec4), 'v4p' },
-	{ "y", 1*sizeof(vec4), 'v4p' },
-	{ "z", 2*sizeof(vec4), 'v4p' },
-	{ "w", 3*sizeof(vec4), 'v4p' },
+static StructDesc mat4_desc[] = {
+	{ "x", 0*sizeof(Vec4), 'v4p' },
+	{ "y", 1*sizeof(Vec4), 'v4p' },
+	{ "z", 2*sizeof(Vec4), 'v4p' },
+	{ "w", 3*sizeof(Vec4), 'v4p' },
 	{ nil, 0, 0 }
 };
-static int mat4_index(lua_State *L) { return struct_index(L, luaL_checkudata(L, 1, "Mat4"), "Mat4", mat4desc); }
-static int mat4_newindex(lua_State *L) { return struct_newindex(L, luaL_checkudata(L, 1, "Mat4"), "Mat4", mat4desc); }
+USERTYPE(mat4, "Mat4")
 static const luaL_Reg mat4_meta[] = {
-	{ "__index", mat4_index },
-	{ "__newindex", mat4_newindex },
+	{ "__index", mat4__index },
+	{ "__newindex", mat4__newindex },
 	{ nil, nil }
 };
 
 static int
 L_mat4(lua_State *L)
 {
-	return L_pushmat4(L, mat4(luaL_optnumber(L, 1, 1.0f)));
+	return L_pushmat4(L, m4diag(luaL_optnumber(L, 1, 1.0f)));
 	return 0;
 }
 
 
-static StructDesc quatdesc[] = {
-	{ "x", offsetof(glm::quat, x), 'f' },
-	{ "y", offsetof(glm::quat, y), 'f' },
-	{ "z", offsetof(glm::quat, z), 'f' },
-	{ "w", offsetof(glm::quat, w), 'f' },
+static StructDesc quat_desc[] = {
+	{ "x", offsetof(Quat, x), 'f' },
+	{ "y", offsetof(Quat, y), 'f' },
+	{ "z", offsetof(Quat, z), 'f' },
+	{ "w", offsetof(Quat, w), 'f' },
 	{ nil, 0, 0 }
 };
-static int quat_index(lua_State *L) { return struct_index(L, luaL_checkudata(L, 1, "Quat"), "Quat", quatdesc); }
-static int quat_newindex(lua_State *L) { return struct_newindex(L, luaL_checkudata(L, 1, "Quat"), "Quat", quatdesc); }
+USERTYPE(quat, "Quat")
 static const luaL_Reg quat_meta[] = {
-	{ "__index", quat_index },
-	{ "__newindex", quat_newindex },
+	{ "__index", quat__index },
+	{ "__newindex", quat__newindex },
 	{ nil, nil }
 };
 
 static int
 L_quat(lua_State *L)
 {
+	// Lua side is quat(w, x, y, z)
 	return L_pushquat(L,
-		quat(luaL_optnumber(L, 1, 0.0f),
-			luaL_optnumber(L, 2, 0.0f),
+		quat(luaL_optnumber(L, 2, 0.0f),
 			luaL_optnumber(L, 3, 0.0f),
-			luaL_optnumber(L, 4, 0.0f)));
+			luaL_optnumber(L, 4, 0.0f),
+			luaL_optnumber(L, 1, 0.0f)));
 }
 
 
@@ -519,7 +530,8 @@ L_xtcTexCoord(lua_State *L)
 {
 	float u = luaL_checknumber(L, 1);
 	float v = luaL_checknumber(L, 2);
-	xtcTexCoord(u, v);
+	float q = luaL_optnumber(L, 3, 1.0);
+	xtcTexCoord3(u, v, q);
 	return 0;
 }
 
@@ -554,28 +566,65 @@ checkvalidptr(lua_State *L, int n, const char *name)
 static int
 L_xtcSetTexture(lua_State *L)
 {
+	xtcTexture *tex = (xtcTexture*)checkptr(L, 1, "xtcTexture");
+	xtcSetTexture(tex);
+	return 0;
+}
+
+static int
+L_xtcSetTextureN(lua_State *L)
+{
 	xtcTexture *tex = (xtcTexture*)checkptr(L, 2, "xtcTexture");
-	xtcSetTexture(luaL_checkinteger(L, 1), tex);
+	xtcSetTextureN(luaL_checkinteger(L, 1), tex);
 	return 0;
 }
 
 static int
-L_xtcSetShader(lua_State *L)
+L_xtcSetPipeline(lua_State *L)
 {
-	xtcShader *sh = (xtcShader*)checkvalidptr(L, 1, "xtcShader");
-	xtcSetShader(sh);
+	xtcPipeline *pipe = (xtcPipeline*)checkvalidptr(L, 1, "xtcPipeline");
+	xtcSetPipeline(pipe);
 	return 0;
 }
 
+/*
+ * Prim lists, same names as the C API.  xtcCreatePrimList() gives a
+ * list, xtcStartList/xtcEndList record the begin/end pairs in between
+ * into it, xtcPrimListDraw draws it with the current pipeline.
+ */
+
 static int
-L_xtcGetDefaultShader(lua_State *L)
+L_xtcCreatePrimList(lua_State *L)
 {
-	mkptr(L, "xtcShader", xtcGetDefaultShader());
+	mkptr(L, "xtcPrimList", xtcCreatePrimList());
 	return 1;
 }
 
+static int
+L_xtcStartList(lua_State *L)
+{
+	xtcPrimList *pl = (xtcPrimList*)checkvalidptr(L, 1, "xtcPrimList");
+	xtcStartList(pl);
+	return 0;
+}
 
-static StructDesc lightdesc[] = {
+static int
+L_xtcEndList(lua_State *L)
+{
+	xtcEndList();
+	return 0;
+}
+
+static int
+L_xtcPrimListDraw(lua_State *L)
+{
+	xtcPrimList *pl = (xtcPrimList*)checkvalidptr(L, 1, "xtcPrimList");
+	xtcPrimListDraw(pl);
+	return 0;
+}
+
+
+static StructDesc xtcLight_desc[] = {
 	{ "enabled", offsetof(xtcLight, enabled), 'i' },
 	{ "type", offsetof(xtcLight, type), 'i' },
 	{ "color", offsetof(xtcLight, color), 'v4' },
@@ -584,9 +633,7 @@ static StructDesc lightdesc[] = {
 	{ "position", offsetof(xtcLight, position), 'v3' },
 	{ nil, 0, 0 }
 };
-static int xtcLight__index(lua_State *L) { return struct_index(L, checklptr(L, 1, "xtcLight"), "xtcLight", lightdesc); }
-static int xtcLight__newindex(lua_State *L) { return struct_newindex(L, checklptr(L, 1, "xtcLight"), "xtcLight", lightdesc); }
-static int xtcLight__gc(lua_State *L) { freelptr(L, 1, "xtcLight"); return 0; }
+USERTYPEPTR(xtcLight, "xtcLight")
 static const luaL_Reg xtcLight__meta[] = {
 	{ "__index", xtcLight__index },
 	{ "__newindex", xtcLight__newindex },
@@ -623,7 +670,7 @@ L_xtcSetLight(lua_State *L)
 
 
 
-static StructDesc materialdesc[] = {
+static StructDesc xtcMaterial_desc[] = {
 	{ "colorSelector", offsetof(xtcMaterial, colorSelector), 'v4' },
 	{ "ambient", offsetof(xtcMaterial, ambient), 'v4' },
 	{ "diffuse", offsetof(xtcMaterial, diffuse), 'v4' },
@@ -632,9 +679,7 @@ static StructDesc materialdesc[] = {
 	{ "shininess", offsetof(xtcMaterial, shininess), 'f' },
 	{ nil, 0, 0 }
 };
-static int xtcMaterial__index(lua_State *L) { return struct_index(L, checklptr(L, 1, "xtcMaterial"), "xtcMaterial", materialdesc); }
-static int xtcMaterial__newindex(lua_State *L) { return struct_newindex(L, checklptr(L, 1, "xtcMaterial"), "xtcMaterial", materialdesc); }
-static int xtcMaterial__gc(lua_State *L) { freelptr(L, 1, "xtcMaterial"); return 0; }
+USERTYPEPTR(xtcMaterial, "xtcMaterial")
 static const luaL_Reg xtcMaterial__meta[] = {
 	{ "__index", xtcMaterial__index },
 	{ "__newindex", xtcMaterial__newindex },
@@ -647,7 +692,7 @@ L_xtcMaterial(lua_State *L)
 {
 	LuaPtr *p = mklptr(L, emalloc(sizeof(xtcMaterial)), 1);
 	xtcMaterial *m = (xtcMaterial*)p->p;
-	m->colorSelector = vec4(0.0f);
+	m->colorSelector = vec4(0.0f, 0.0f, 0.0f, 0.0f);
 	m->ambient = vec4(0.2f, 0.2f, 0.2f, 1.0f);
 	m->diffuse = vec4(0.8f, 0.8f, 0.8f, 1.0f);
 	m->specular = vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -666,31 +711,48 @@ L_xtcSetMaterial(lua_State *L)
 	return 0;
 }
 
+void
+newMetatable(lua_State *L, const char *name, const luaL_Reg *meta)
+{
+	luaL_newmetatable(L, name);
+	if(meta)
+		luaL_setfuncs(L, meta, 0);
+	else {
+		lua_pushvalue(L, -1);
+		lua_setfield(L, -2, "__index");
+	}
+}
 
 void
 registerXtc(lua_State *L)
 {
-	luaL_newmetatable(L, "xtcShader");
-	lua_pushvalue(L, -1);
-	lua_setfield(L, -2, "__index");
+	newMetatable(L, "xtcPipeline", nil);
 	lua_pop(L, 1);
-	lua_register(L, "xtcSetShader", L_xtcSetShader);
-	lua_register(L, "xtcGetDefaultShader", L_xtcGetDefaultShader);
+	lua_register(L, "xtcSetPipeline", L_xtcSetPipeline);
+	// the pipelines are globals, like on the PS2
+	mkptr(L, "xtcPipeline", defaultPipeline); lua_setglobal(L, "defaultPipeline");
+	mkptr(L, "xtcPipeline", skinPipeline); lua_setglobal(L, "skinPipeline");
+	mkptr(L, "xtcPipeline", lit4Pipeline); lua_setglobal(L, "lit4Pipeline");
+	mkptr(L, "xtcPipeline", lit8Pipeline); lua_setglobal(L, "lit8Pipeline");
 
-	luaL_newmetatable(L, "xtcTexture");
-	lua_pushvalue(L, -1);
-	lua_setfield(L, -2, "__index");
+	newMetatable(L, "xtcPrimList", nil);
+	lua_pop(L, 1);
+	lua_register(L, "xtcCreatePrimList", L_xtcCreatePrimList);
+	lua_register(L, "xtcStartList", L_xtcStartList);
+	lua_register(L, "xtcEndList", L_xtcEndList);
+	lua_register(L, "xtcPrimListDraw", L_xtcPrimListDraw);
+
+	newMetatable(L, "xtcTexture", nil);
 	lua_pop(L, 1);
 	lua_register(L, "xtcSetTexture", L_xtcSetTexture);
+	lua_register(L, "xtcSetTextureN", L_xtcSetTextureN);
 
-	luaL_newmetatable(L, "xtcMaterial");
-	luaL_setfuncs(L, xtcMaterial__meta, 0);
+	newMetatable(L, "xtcMaterial", xtcMaterial__meta);
 	lua_pop(L, 1);
 	lua_register(L, "xtcMaterial", L_xtcMaterial);
 	lua_register(L, "xtcSetMaterial", L_xtcSetMaterial);
 
-	luaL_newmetatable(L, "xtcLight");
-	luaL_setfuncs(L, xtcLight__meta, 0);
+	newMetatable(L, "xtcLight", xtcLight__meta);
 	lua_pop(L, 1);
 	lua_register(L, "xtcLight", L_xtcLight);
 	lua_register(L, "xtcSetAmbient", L_xtcSetAmbient);
@@ -714,20 +776,45 @@ registerXtc(lua_State *L)
 	lua_register(L, "xtcWeights", L_xtcWeights);
 }
 
+/*
+ * xModel
+ */
+
+static xModel*
+checkxmodel(lua_State *L, int n)
+{
+	return (xModel*)checkvalidptr(L, n, "xModel");
+}
+
+static xAnimList*
+checkxanimlist(lua_State *L, int n)
+{
+	return (xAnimList*)checkvalidptr(L, n, "xAnimList");
+}
+
+static xAnimation*
+checkxanim(lua_State *L, int n)
+{
+	return (xAnimation*)checkvalidptr(L, n, "xAnimation");
+}
+
+static xAnimPlayer*
+checkxanimplayer(lua_State *L, int n)
+{
+	return (xAnimPlayer*)checkvalidptr(L, n, "xAnimPlayer");
+}
+
 static int
 L_loadXModel(lua_State *L)
 {
 	const char *name = luaL_checkstring(L, 1);
 	FILE *f = efopen(name, "r");
 	xModel *mdl = loadXModel(f);
-	if(mdl) {
-		buildXModel(mdl);
-		mkptr(L, "xModel", mdl);
-		fclose(f);
-		return 1;
-	}
 	fclose(f);
-	return 0;
+	if(mdl == nil)
+		return 0;
+	buildXModel(mdl);
+	return mkptr(L, "xModel", mdl);
 }
 
 static int
@@ -736,37 +823,464 @@ L_loadXModelChunk(lua_State *L)
 	const char *name = luaL_checkstring(L, 1);
 	FILE *f = efopen(name, "rb");
 	xModel *mdl = loadXModelChunk(f);
-	if(mdl) {
-		buildXModel(mdl);
-		mkptr(L, "xModel", mdl);
-		fclose(f);
-		return 1;
+	fclose(f);
+	if(mdl == nil)
+		return 0;
+	buildXModel(mdl);
+	return mkptr(L, "xModel", mdl);
+}
+
+static const aiScene*
+importAssimpScene(Assimp::Importer &importer, const char *file)
+{
+	importer.RegisterLoader(new Assimp::DFFImporter);
+	const aiScene *scene = importer.ReadFile(file, aiProcess_Triangulate | aiProcess_PopulateArmatureData);
+	if(scene == nil ||
+	   scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE ||
+	   scene->mRootNode == nil) {
+		fprintf(stderr, "can't load %s: %s\n", file, importer.GetErrorString());
+		return nil;
 	}
+	return scene;
+}
+
+// importScene(file [, rootMatrix])
+// anything assimp can read. returns model and (if there are any) animations.
+// rootMatrix is applied on top of the root node, e.g. to convert y-up to z-up
+static int
+L_importScene(lua_State *L)
+{
+	const char *file = luaL_checkstring(L, 1);
+	Assimp::Importer importer;
+	const aiScene *scene = importAssimpScene(importer, file);
+	if(scene == nil)
+		return 0;
+	xModel *mdl = convertAssimpScene(scene);
+	if(!lua_isnoneornil(L, 2)) {
+		mdl->root->localMatrix = *checkmat4(L, 2) * mdl->root->localMatrix;
+		if(mdl->skel) {
+			xSkeletonResetMatrices(mdl->skel);
+			xSkeletonUpdateMatrices(mdl->skel);
+		}
+	}
+	xAnimList *anims = convertAssimpAnimations(scene, mdl);
+	buildXModel(mdl);
+	mkptr(L, "xModel", mdl);
+	if(anims)
+		mkptr(L, "xAnimList", anims);
+	else
+		lua_pushnil(L);
+	return 2;
+}
+
+// anything assimp can read -> DFF
+static int
+L_exportDFF(lua_State *L)
+{
+	const char *file = luaL_checkstring(L, 1);
+	const char *out = luaL_checkstring(L, 2);
+	Assimp::Importer importer;
+	const aiScene *scene = importAssimpScene(importer, file);
+	if(scene == nil)
+		return 0;
+	lua_pushboolean(L, Assimp::writeAssimpSceneAsDFF(scene, out));
+	return 1;
+}
+
+static int
+L_saveXModel(lua_State *L)
+{
+	xModel *mdl = checkxmodel(L, 1);
+	FILE *f = efopen(luaL_checkstring(L, 2), "w");
+	writeXModel(f, mdl);
 	fclose(f);
 	return 0;
 }
 
 static int
-L_xModelDraw(lua_State *L)
+L_saveXModelChunk(lua_State *L)
 {
-	xModel *mdl = *(xModel**)luaL_checkudata(L, 1, "xModel");
-	xModelDraw(mdl, 0);
+	xModel *mdl = checkxmodel(L, 1);
+	FILE *f = efopen(luaL_checkstring(L, 2), "wb");
+	writeXModelChunk(f, mdl);
+	fclose(f);
 	return 0;
 }
 
+// mdl:draw([flags [, pipeline]])
+static int
+L_xModelDraw(lua_State *L)
+{
+	xModel *mdl = checkxmodel(L, 1);
+	if(!lua_isnoneornil(L, 3))
+		xDrawPipeline = (xtcPipeline*)checkvalidptr(L, 3, "xtcPipeline");
+	xModelDraw(mdl, luaL_optinteger(L, 2, 0));
+	xDrawPipeline = nil;
+	return 0;
+}
+
+// mdl:setMaterial(xtcMaterial): every mesh gets this material
+static int
+L_xModelSetMaterial(lua_State *L)
+{
+	xModel *mdl = checkxmodel(L, 1);
+	xtcMaterial *m = (xtcMaterial*)checklptr(L, 2, "xtcMaterial");
+	for(int i = 0; i < mdl->numMeshes; i++)
+		if(mdl->meshes[i]->material)
+			mdl->meshes[i]->material->material = *m;
+	return 0;
+}
+
+static int
+L_xModelHideCarParts(lua_State *L)
+{
+	xModel *mdl = checkxmodel(L, 1);
+	void hideCarParts(xNode *node);
+	hideCarParts(mdl->root);
+	return 0;
+}
+
+static int
+L_xModelInfo(lua_State *L)
+{
+	xModel *mdl = checkxmodel(L, 1);
+	int nverts = 0, ntris = 0;
+	for(int i = 0; i < mdl->numMeshes; i++) {
+		xGeometry *g = mdl->meshes[i]->geo;
+		if(g) {
+			nverts += g->numVertices;
+			ntris += g->numIndices/3;
+		}
+	}
+	lua_newtable(L);
+	lua_pushinteger(L, mdl->numMeshes); lua_setfield(L, -2, "numMeshes");
+	lua_pushinteger(L, mdl->numMaterials); lua_setfield(L, -2, "numMaterials");
+	lua_pushinteger(L, mdl->skel ? mdl->skel->numBones : 0); lua_setfield(L, -2, "numBones");
+	lua_pushinteger(L, nverts); lua_setfield(L, -2, "numVertices");
+	lua_pushinteger(L, ntris); lua_setfield(L, -2, "numTriangles");
+	return 1;
+}
+
+// center, radius
+static int
+L_xModelBounds(lua_State *L)
+{
+	xModel *mdl = checkxmodel(L, 1);
+	Vec3 center;
+	float radius;
+	xModelBoundingSphere(mdl, &center, &radius);
+	L_pushvec3(L, center);
+	lua_pushnumber(L, radius);
+	return 2;
+}
+
+static const luaL_Reg xModel_methods[] = {
+	{ "draw", L_xModelDraw },
+	{ "setMaterial", L_xModelSetMaterial },
+	{ "bounds", L_xModelBounds },
+	{ "hideCarParts", L_xModelHideCarParts },
+	{ "info", L_xModelInfo },
+	{ nil, nil }
+};
+
+/*
+ * Animations
+ */
+
+static int
+L_loadXAnimList(lua_State *L)
+{
+	FILE *f = efopen(luaL_checkstring(L, 1), "r");
+	xAnimList *al = loadXAnimList(f);
+	fclose(f);
+	if(al == nil)
+		return 0;
+	return mkptr(L, "xAnimList", al);
+}
+
+static int
+L_loadXAnimListChunk(lua_State *L)
+{
+	FILE *f = efopen(luaL_checkstring(L, 1), "rb");
+	xAnimList *al = loadXAnimListChunk(f);
+	fclose(f);
+	if(al == nil)
+		return 0;
+	return mkptr(L, "xAnimList", al);
+}
+
+static int
+L_saveXAnimList(lua_State *L)
+{
+	xAnimList *al = checkxanimlist(L, 1);
+	FILE *f = efopen(luaL_checkstring(L, 2), "w");
+	writeXAnimList(f, al);
+	fclose(f);
+	return 0;
+}
+
+static int
+L_saveXAnimListChunk(lua_State *L)
+{
+	xAnimList *al = checkxanimlist(L, 1);
+	FILE *f = efopen(luaL_checkstring(L, 2), "wb");
+	writeXAnimListChunk(f, al);
+	fclose(f);
+	return 0;
+}
+
+static int
+L_xAnimListCount(lua_State *L)
+{
+	lua_pushinteger(L, checkxanimlist(L, 1)->numAnims);
+	return 1;
+}
+
+// 1-based
+static int
+L_xAnimListGet(lua_State *L)
+{
+	xAnimList *al = checkxanimlist(L, 1);
+	int i = luaL_checkinteger(L, 2) - 1;
+	if(i < 0 || i >= al->numAnims)
+		return 0;
+	return mkptr(L, "xAnimation", &al->anims[i]);
+}
+
+static int
+L_xAnimListNames(lua_State *L)
+{
+	xAnimList *al = checkxanimlist(L, 1);
+	lua_newtable(L);
+	for(int i = 0; i < al->numAnims; i++) {
+		lua_pushstring(L, al->anims[i].name);
+		lua_rawseti(L, -2, i+1);
+	}
+	return 1;
+}
+
+static const luaL_Reg xAnimList_methods[] = {
+	{ "count", L_xAnimListCount },
+	{ "get", L_xAnimListGet },
+	{ "names", L_xAnimListNames },
+	{ nil, nil }
+};
+
+static int
+L_xAnimationName(lua_State *L)
+{
+	lua_pushstring(L, checkxanim(L, 1)->name);
+	return 1;
+}
+
+static int
+L_xAnimationDuration(lua_State *L)
+{
+	lua_pushnumber(L, checkxanim(L, 1)->duration);
+	return 1;
+}
+
+static const luaL_Reg xAnimation_methods[] = {
+	{ "name", L_xAnimationName },
+	{ "duration", L_xAnimationDuration },
+	{ nil, nil }
+};
+
+static int
+L_xAnimPlayer(lua_State *L)
+{
+	xModel *mdl = checkxmodel(L, 1);
+	return mkptr(L, "xAnimPlayer", xAnimPlayerCreate(mdl));
+}
+
+static int
+L_xAnimPlayerSetAnim(lua_State *L)
+{
+	xAnimPlayer *p = checkxanimplayer(L, 1);
+	xAnimation *a = lua_isnoneornil(L, 2) ? nil : checkxanim(L, 2);
+	xAnimPlayerSetAnim(p, a);
+	return 0;
+}
+
+static int
+L_xAnimPlayerAddTime(lua_State *L)
+{
+	xAnimPlayerAddTime(checkxanimplayer(L, 1), luaL_checknumber(L, 2));
+	return 0;
+}
+
+static int
+L_xAnimPlayerApply(lua_State *L)
+{
+	xAnimPlayerApply(checkxanimplayer(L, 1));
+	return 0;
+}
+
+static int
+L_xAnimPlayerGetTime(lua_State *L)
+{
+	lua_pushnumber(L, checkxanimplayer(L, 1)->time);
+	return 1;
+}
+
+static int
+L_xAnimPlayerSetTime(lua_State *L)
+{
+	xAnimPlayer *p = checkxanimplayer(L, 1);
+	p->time = 0.0f;
+	xAnimPlayerAddTime(p, luaL_checknumber(L, 2));
+	return 0;
+}
+
+static const luaL_Reg xAnimPlayer_methods[] = {
+	{ "setAnim", L_xAnimPlayerSetAnim },
+	{ "addTime", L_xAnimPlayerAddTime },
+	{ "apply", L_xAnimPlayerApply },
+	{ "getTime", L_xAnimPlayerGetTime },
+	{ "setTime", L_xAnimPlayerSetTime },
+	{ nil, nil }
+};
+
+static void
+newMethodTable(lua_State *L, const char *name, const luaL_Reg *methods)
+{
+	newMetatable(L, name, nil);
+	luaL_setfuncs(L, methods, 0);
+	lua_pop(L, 1);
+}
 
 void
 registerXModel(lua_State *L)
 {
-	luaL_newmetatable(L, "xModel");
-	lua_pushvalue(L, -1);
-	lua_setfield(L, -2, "__index");
-	lua_pushcfunction(L, L_xModelDraw);
-	lua_setfield(L, -2, "draw");
-	lua_pop(L, 1);
+	newMethodTable(L, "xModel", xModel_methods);
+	newMethodTable(L, "xAnimList", xAnimList_methods);
+	newMethodTable(L, "xAnimation", xAnimation_methods);
+	newMethodTable(L, "xAnimPlayer", xAnimPlayer_methods);
 
 	lua_register(L, "loadXModel", L_loadXModel);
 	lua_register(L, "loadXModelChunk", L_loadXModelChunk);
+	lua_register(L, "saveXModel", L_saveXModel);
+	lua_register(L, "saveXModelChunk", L_saveXModelChunk);
+	lua_register(L, "importScene", L_importScene);
+	lua_register(L, "exportDFF", L_exportDFF);
+
+	lua_register(L, "loadXAnimList", L_loadXAnimList);
+	lua_register(L, "loadXAnimListChunk", L_loadXAnimListChunk);
+	lua_register(L, "saveXAnimList", L_saveXAnimList);
+	lua_register(L, "saveXAnimListChunk", L_saveXAnimListChunk);
+	lua_register(L, "xAnimPlayer", L_xAnimPlayer);
+}
+
+/*
+ * ImGui. Just enough for debug panels.
+ * Widgets return their (new) value, callers keep the state.
+ */
+
+static int
+L_imguiBegin(lua_State *L)
+{
+	lua_pushboolean(L, ImGui::Begin(luaL_checkstring(L, 1)));
+	return 1;
+}
+
+static int
+L_imguiEnd(lua_State *L)
+{
+	ImGui::End();
+	return 0;
+}
+
+static int
+L_imguiText(lua_State *L)
+{
+	ImGui::TextUnformatted(luaL_checkstring(L, 1));
+	return 0;
+}
+
+static int
+L_imguiButton(lua_State *L)
+{
+	lua_pushboolean(L, ImGui::Button(luaL_checkstring(L, 1)));
+	return 1;
+}
+
+static int
+L_imguiCheckbox(lua_State *L)
+{
+	bool v = lua_toboolean(L, 2);
+	ImGui::Checkbox(luaL_checkstring(L, 1), &v);
+	lua_pushboolean(L, v);
+	return 1;
+}
+
+static int
+L_imguiSliderFloat(lua_State *L)
+{
+	float v = luaL_checknumber(L, 2);
+	ImGui::SliderFloat(luaL_checkstring(L, 1), &v, luaL_checknumber(L, 3), luaL_checknumber(L, 4));
+	lua_pushnumber(L, v);
+	return 1;
+}
+
+static int
+L_imguiSliderInt(lua_State *L)
+{
+	int v = luaL_checkinteger(L, 2);
+	ImGui::SliderInt(luaL_checkstring(L, 1), &v, luaL_checkinteger(L, 3), luaL_checkinteger(L, 4));
+	lua_pushinteger(L, v);
+	return 1;
+}
+
+// imguiCombo(label, index, {items}) -> index, 1-based
+static int
+L_imguiCombo(lua_State *L)
+{
+	const char *label = luaL_checkstring(L, 1);
+	int cur = luaL_checkinteger(L, 2) - 1;
+	luaL_checktype(L, 3, LUA_TTABLE);
+	int n = luaL_len(L, 3);
+	std::vector<const char*> items(n);
+	// the strings stay on the stack until we're done, so make room for them
+	luaL_checkstack(L, n, "combo items");
+	for(int i = 0; i < n; i++) {
+		lua_rawgeti(L, 3, i+1);
+		items[i] = lua_tostring(L, -1);
+	}
+	if(cur < 0) cur = 0;
+	if(cur >= n) cur = n-1;
+	ImGui::Combo(label, &cur, n ? &items[0] : nil, n, 20);
+	lua_pop(L, n);
+	lua_pushinteger(L, cur+1);
+	return 1;
+}
+
+static int
+L_imguiSameLine(lua_State *L)
+{
+	ImGui::SameLine();
+	return 0;
+}
+
+static int
+L_imguiSeparator(lua_State *L)
+{
+	ImGui::Separator();
+	return 0;
+}
+
+static void
+registerImgui(lua_State *L)
+{
+	lua_register(L, "imguiBegin", L_imguiBegin);
+	lua_register(L, "imguiEnd", L_imguiEnd);
+	lua_register(L, "imguiText", L_imguiText);
+	lua_register(L, "imguiButton", L_imguiButton);
+	lua_register(L, "imguiCheckbox", L_imguiCheckbox);
+	lua_register(L, "imguiSliderFloat", L_imguiSliderFloat);
+	lua_register(L, "imguiSliderInt", L_imguiSliderInt);
+	lua_register(L, "imguiCombo", L_imguiCombo);
+	lua_register(L, "imguiSameLine", L_imguiSameLine);
+	lua_register(L, "imguiSeparator", L_imguiSeparator);
 }
 
 static StructDesc imguiIOdesc[] = {
@@ -799,21 +1313,46 @@ L_getDragMode(lua_State *L)
 	return 1;
 }
 
+static int
+L_screenshot(lua_State *L)
+{
+	lua_pushboolean(L, Screenshot(luaL_checkstring(L, 1)));
+	return 1;
+}
+
+static int
+L_quit(lua_State *L)
+{
+	appShouldQuit = true;
+	return 0;
+}
+
 
 lua_State*
-initLua(void)
+initLua(int argc, char **argv)
 {
 	lua_State *L = luaL_newstate();
 	luaL_openlibs(L);
 	registerXmath(L);
 	registerXtc(L);
 	registerXModel(L);
+	registerImgui(L);
 
 	luaL_newmetatable(L, "ImguiIO");
 	luaL_setfuncs(L, imguiIO__meta, 0);
 	lua_pop(L, 1);
 	lua_register(L, "imguiIO", L_imguiIO);
 	lua_register(L, "getDragMode", L_getDragMode);
+	lua_register(L, "screenshot", L_screenshot);
+	lua_register(L, "quit", L_quit);
+
+	// command line as the usual arg table, arg[1] is the first argument
+	lua_newtable(L);
+	for(int i = 0; i < argc; i++) {
+		lua_pushstring(L, argv[i]);
+		lua_rawseti(L, -2, i);
+	}
+	lua_setglobal(L, "arg");
 
 	return L;
 }

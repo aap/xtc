@@ -1,33 +1,43 @@
+/*
+ * assimp scene -> xModel / xAnimList
+ */
+
 #include "xtc.h"
 #include "xmodel.h"
+#include "conv.h"
 
 #include <assimp/scene.h>
 
 xtcMaterial DefaultMaterial(void);
+xTexture *readTexture(const char *name);
+xTexture *createTexturePNG(const char *name, const u8 *data, u32 size);
 
-void
-convertMatrix(mat4 &m, const aiMatrix4x4 &mtx)
+static void
+convertMatrix(Mat4 &m, const aiMatrix4x4 &mtx)
 {
-	m[0][0] = mtx.a1;
-	m[0][1] = mtx.b1;
-	m[0][2] = mtx.c1;
-	m[0][3] = 0.0f;
-	m[1][0] = mtx.a2;
-	m[1][1] = mtx.b2;
-	m[1][2] = mtx.c2;
-	m[1][3] = 0.0f;
-	m[2][0] = mtx.a3;
-	m[2][1] = mtx.b3;
-	m[2][2] = mtx.c3;
-	m[2][3] = 0.0f;
-	m[3][0] = mtx.a4;
-	m[3][1] = mtx.b4;
-	m[3][2] = mtx.c4;
-	m[3][3] = 1.0f;
+	m.x.x = mtx.a1;
+	m.x.y = mtx.b1;
+	m.x.z = mtx.c1;
+	m.x.w = 0.0f;
+	m.y.x = mtx.a2;
+	m.y.y = mtx.b2;
+	m.y.z = mtx.c2;
+	m.y.w = 0.0f;
+	m.z.x = mtx.a3;
+	m.z.y = mtx.b3;
+	m.z.z = mtx.c3;
+	m.z.w = 0.0f;
+	m.w.x = mtx.a4;
+	m.w.y = mtx.b4;
+	m.w.z = mtx.c4;
+	m.w.w = 1.0f;
 }
 
-int gentag = 1000;
+static int gentag = 1000;
 
+/*
+ * Traverse-order table of nodes. Its order defines bone IDs.
+ */
 struct HierEntry
 {
 	xNode *xn;
@@ -37,7 +47,7 @@ struct HierEntry
 	int tag;
 };
 
-int
+static int
 nodeTreeSize(xNode *node)
 {
 	int n = 1;
@@ -46,8 +56,7 @@ nodeTreeSize(xNode *node)
 	return n;
 }
 
-
-int
+static int
 nodeIdx(HierEntry *hier, const char *str)
 {
 	for(int i = 0; hier[i].xn; i++)
@@ -56,7 +65,7 @@ nodeIdx(HierEntry *hier, const char *str)
 	return -1;
 }
 
-void
+static void
 matchBones(aiMesh *m, HierEntry *hier)
 {
 	for(u32 i = 0; i < m->mNumBones; i++) {
@@ -67,7 +76,8 @@ matchBones(aiMesh *m, HierEntry *hier)
 	}
 }
 
-void
+// keep the four largest weights, sorted
+static void
 pushweight(float w, u8 i, float *ws, u8 *is)
 {
 	for(int j = 0; j < 4; j++) {
@@ -82,7 +92,7 @@ pushweight(float w, u8 i, float *ws, u8 *is)
 }
 
 // debug
-void
+static void
 pdepth(xNode *n)
 {
 	if(n == nil) return;
@@ -91,8 +101,7 @@ pdepth(xNode *n)
 		pdepth(n->parent);
 	}
 }
-void indent(int n) { while(n--) printf("  "); }
-
+static void indent(int n) { while(n--) printf("  "); }
 
 void
 dumpHierarchy(HierEntry *hier)
@@ -113,6 +122,8 @@ dumpXSkeleton(xSkeleton *s)
 	int sp = 0;
 	int parent = -1;
 	int depth = 0;
+	stack[sp++] = -1;	// see xSkeletonUpdateMatrices
+	stack[sp++] = 0;
 	for(int i = 0; i < s->numBones; i++) {
 		xBone *b = &s->bones[i];
 
@@ -132,24 +143,20 @@ dumpXSkeleton(xSkeleton *s)
 	}
 }
 
-void
+static void
 convertAssimpSkin(xMesh *xm, aiMesh *m, HierEntry *hier)
 {
 	matchBones(m, hier);
 
-	// TODO: this is bad
-	// bones are purely referenced by name, however
-	// some child nodes may not be part of the hierarchy
-	// so initially we create the skin based on the node hierarchy
-	// once we've seen all skins we create the skeletons and adjust
+	// Bones are referenced by name and we don't have the skeleton yet,
+	// so initially the skin is indexed by node. Once all skins have been
+	// seen createSkeleton knows the bones and fixSkin remaps.
 	int nbones = nodeTreeSize(hier[0].xn);
 	xm->skin = allocXSkin(nbones, xm->geo->numVertices);
 	xSkin *s = xm->skin;
 
 	for(u32 i = 0; i < m->mNumBones; i++) {
 		aiBone *b = m->mBones[i];
-		// NB: at this point indices are still into the node table
-		// this is fixed by fixSkin below once we have a proper skeleton
 		int idx = nodeIdx(hier, b->mName.C_Str());
 		assert(idx < s->numBones);
 		for(u32 j = 0; j < b->mNumWeights; j++) {
@@ -162,7 +169,7 @@ convertAssimpSkin(xMesh *xm, aiMesh *m, HierEntry *hier)
 }
 
 // change node-based to bone-based
-void
+static void
 fixSkin(xMesh *m, xSkeleton *skel, HierEntry *hier)
 {
 	xSkin *s = m->skin;
@@ -174,8 +181,8 @@ fixSkin(xMesh *m, xSkeleton *skel, HierEntry *hier)
 		if(s->weights[i] > 0.0f)
 			s->indices[i] = hier[s->indices[i]].boneIdx;
 	// reshuffle matrices
-	u32 matsz = skel->numBones * sizeof(mat4);
-	mat4 *tmp = (mat4*)malloc(matsz);
+	u32 matsz = skel->numBones * sizeof(Mat4);
+	Mat4 *tmp = (Mat4*)malloc(matsz);
 	for(int i = 0; i < s->numBones; i++)
 		if(hier[i].boneIdx >= 0)
 			tmp[hier[i].boneIdx] = s->invMatrices[i];
@@ -184,7 +191,7 @@ fixSkin(xMesh *m, xSkeleton *skel, HierEntry *hier)
 	s->numBones = skel->numBones;
 }
 
-xMesh*
+static xMesh*
 convertAssimpMesh(aiMesh *m, HierEntry *hier)
 {
 	xMesh *xm;
@@ -219,6 +226,7 @@ convertAssimpMesh(aiMesh *m, HierEntry *hier)
 			vx->tex[0] = uv[i].x;
 			vx->tex[1] = uv[i].y;
 		}
+		// no vertex colours: stay black, materials use them as emissive
 		if(col) {
 			vx->col[0] = col[i].r*255.0f;
 			vx->col[1] = col[i].g*255.0f;
@@ -243,10 +251,8 @@ convertAssimpMesh(aiMesh *m, HierEntry *hier)
 	return xm;
 }
 
-xTexture *readTexture(char *name);
-
-xMaterial*
-convertAssimpMaterial(aiMaterial *m)
+static xMaterial*
+convertAssimpMaterial(const aiScene *scene, aiMaterial *m)
 {
 	xMaterial *xmat;
 
@@ -254,46 +260,50 @@ convertAssimpMaterial(aiMaterial *m)
 	xmat->tex = nil;
 	xmat->material = DefaultMaterial();
 
-	aiColor4D color;
-	m->Get(AI_MATKEY_COLOR_AMBIENT, color);
-	xmat->material.ambient = vec4(color.r, color.g, color.b, color.a);
-	m->Get(AI_MATKEY_COLOR_DIFFUSE, color);
-	xmat->material.diffuse = vec4(color.r, color.g, color.b, color.a);
-	m->Get(AI_MATKEY_COLOR_SPECULAR, color);
-	xmat->material.specular = vec4(color.r, color.g, color.b, color.a);
-	m->Get(AI_MATKEY_COLOR_EMISSIVE, color);
-	xmat->material.emissive = vec4(color.r, color.g, color.b, color.a);
+	aiColor4D color(1.0f, 1.0f, 1.0f, 1.0f);
+	if(m->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS)
+		xmat->material.diffuse = vec4(color.r, color.g, color.b, color.a);
+	// no ambient colour (glTF): light it like diffuse
+	if(m->Get(AI_MATKEY_COLOR_AMBIENT, color) == AI_SUCCESS)
+		xmat->material.ambient = vec4(color.r, color.g, color.b, color.a);
+	else
+		xmat->material.ambient = xmat->material.diffuse;
+	if(m->Get(AI_MATKEY_COLOR_SPECULAR, color) == AI_SUCCESS)
+		xmat->material.specular = vec4(color.r, color.g, color.b, color.a);
+	if(m->Get(AI_MATKEY_COLOR_EMISSIVE, color) == AI_SUCCESS)
+		xmat->material.emissive = vec4(color.r, color.g, color.b, color.a);
 	m->Get(AI_MATKEY_SHININESS, xmat->material.shininess);
 	// use vertex color for emissive
 	xmat->material.colorSelector = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-//xmat->material.ambient = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-xmat->material.shininess = 0;
+	// TODO: no specular yet
+	xmat->material.shininess = 0;
 
 	aiString path;
-	char *p;
+	const char *p;
 	for(u32 j = 0; j < m->GetTextureCount(aiTextureType_DIFFUSE); j++) {
 		m->GetTexture(aiTextureType_DIFFUSE, j, &path);
-//		printf("tex %s\n", path.C_Str());
-		p = strrchr((char*)path.C_Str(), '\\');
-		if(p == nil) p = strrchr((char*)path.C_Str(), '/');
+		const aiTexture *emb = scene->GetEmbeddedTexture(path.C_Str());
+		if(emb) {
+			// only compressed PNG data for now
+			if(emb->mHeight == 0 && emb->CheckFormat("png")) {
+				const char *name = emb->mFilename.length ? emb->mFilename.C_Str() : path.C_Str();
+				xmat->tex = createTexturePNG(name, (u8*)emb->pcData, emb->mWidth);
+			} else
+				fprintf(stderr, "warning: unsupported embedded texture %s\n", path.C_Str());
+			continue;
+		}
+		p = strrchr(path.C_Str(), '\\');
+		if(p == nil) p = strrchr(path.C_Str(), '/');
 		if(p)
 			xmat->tex = readTexture(p+1);
 		else
-			xmat->tex = readTexture((char*)path.C_Str());
+			xmat->tex = readTexture(path.C_Str());
 	}
 
 	return xmat;
 }
 
-/*
-	return traverse-order table of nodes:
-	THIS defines bone IDs
-	{ xNode, aiNode, flag? }
-
-	create and assign meshes later
- */
-
-xNode*
+static xNode*
 buildHierarchy(aiNode *root, HierEntry **hp)
 {
 	xNode *node = allocXNode();
@@ -326,7 +336,7 @@ buildHierarchy(aiNode *root, HierEntry **hp)
 	return node;
 }
 
-int
+static int
 countNodes(aiNode *node)
 {
 	int n = 1;
@@ -335,10 +345,10 @@ countNodes(aiNode *node)
 	return n;
 }
 
-xSkeleton*
+static xSkeleton*
 createSkeleton(xModel *mdl, HierEntry *hier)
 {
-	// find bone and assign indices and tags
+	// find bones and assign indices and tags
 	int numBones = 0;
 	int rootIdx = -1;
 	for(int i = 0; hier[i].xn; i++) {
@@ -355,9 +365,6 @@ createSkeleton(xModel *mdl, HierEntry *hier)
 
 	xSkeleton *skel = allocXSkeleton(numBones);
 
-//dumpHierarchy(hier);
-//printf("%d bones. root at %d\n", numBones, rootIdx);
-
 	hier += rootIdx;
 	hier->xn->skel = skel;
 	mdl->skel = skel;
@@ -373,25 +380,10 @@ createSkeleton(xModel *mdl, HierEntry *hier)
 		if(b->node->child==nil || b->node->child->tag < 0)
 			b->flag |= 2;	// pop
 	}
-	skel->bones[0].flag &= ~1;	// root cannot have children
-//dumpXSkeleton(skel);
+	skel->bones[0].flag &= ~1;	// root cannot have siblings
 
-	int stack[64];
-	int sp = 0;
-
-	mat4 *m = skel->matrices;
-	memset(m, 0, skel->numBones*sizeof(mat4));
-// TODO: hmm??
-//	m[0] = mat4(1.0f);
-	m[0] = skel->bones->node->localMatrix;
-	int parent = 0;
-	for(int i = 1; i < skel->numBones; i++) {
-		xBone *b = &skel->bones[i];
-		m[i] = m[parent] * b->node->localMatrix;
-		if(b->flag & 1) stack[sp++] = parent;
-		parent = i;
-		if(b->flag & 2) parent = stack[--sp];
-	}
+	xSkeletonResetMatrices(skel);
+	xSkeletonUpdateMatrices(skel);
 
 	return skel;
 }
@@ -419,7 +411,7 @@ convertAssimpScene(const aiScene *scene)
 
 
 	for(u32 i = 0; i < scene->mNumMaterials; i++)
-		mdl->materials[i] = convertAssimpMaterial(scene->mMaterials[i]);
+		mdl->materials[i] = convertAssimpMaterial(scene, scene->mMaterials[i]);
 	gentag = 1000;
 	for(u32 i = 0; i < scene->mNumMeshes; i++) {
 		mdl->meshes[i] = convertAssimpMesh(scene->mMeshes[i], hier);
@@ -430,14 +422,16 @@ convertAssimpScene(const aiScene *scene)
 		aiNode *an = hier[i].an;
 		xn->numMeshes = an->mNumMeshes;
 		xn->meshes = (xMesh**)malloc(xn->numMeshes*sizeof(xMesh*));
-		for(u32 i = 0; i < an->mNumMeshes; i++)
-			xn->meshes[i] = mdl->meshes[an->mMeshes[i]];
+		for(u32 j = 0; j < an->mNumMeshes; j++)
+			xn->meshes[j] = mdl->meshes[an->mMeshes[j]];
 	}
 
 	if(createSkeleton(mdl, hier)) {
 		for(u32 i = 0; i < scene->mNumMeshes; i++)
 			fixSkin(mdl->meshes[i], mdl->skel, hier);
 	}
+
+	free(hier);
 
 	return mdl;
 }
@@ -446,15 +440,43 @@ convertAssimpScene(const aiScene *scene)
 
 
 
-int
-findBone(xSkeleton *skel, const char *str)
+static xAnimChannel*
+convertAssimpChannel(xAnimChannel *xch, aiNodeAnim *ch, xModel *mdl, float tps)
 {
-	for(int i = 0; i < skel->numBones; i++) {
-		xBone *b = &skel->bones[i];
-		if(strcmp(b->node->name, str) == 0)
-			return i;
+	xch->name = strdup(ch->mNodeName.C_Str());
+	xch->id = mdl->skel ? findBone(mdl->skel, xch->name) : -1;
+
+	xch->numRotKeys = ch->mNumRotationKeys;
+	xch->numTransKeys = ch->mNumPositionKeys;
+	xch->numScaleKeys = ch->mNumScalingKeys;
+	// empty tracks are nil
+	xch->rotKeys = xch->numRotKeys ? (xRotKey*)malloc(xch->numRotKeys * sizeof(xRotKey)) : nil;
+	xch->transKeys = xch->numTransKeys ? (xVecKey*)malloc(xch->numTransKeys * sizeof(xVecKey)) : nil;
+	xch->scaleKeys = xch->numScaleKeys ? (xVecKey*)malloc(xch->numScaleKeys * sizeof(xVecKey)) : nil;
+
+	for(int k = 0; k < xch->numRotKeys; k++) {
+		aiQuatKey *rk = &ch->mRotationKeys[k];
+		xRotKey *xk = &xch->rotKeys[k];
+		xk->time = rk->mTime / tps;
+		xk->rot.w = rk->mValue.w;
+		xk->rot.x = rk->mValue.x;
+		xk->rot.y = rk->mValue.y;
+		xk->rot.z = rk->mValue.z;
 	}
-	return -1;
+	for(int k = 0; k < xch->numTransKeys; k++) {
+		aiVectorKey *pk = &ch->mPositionKeys[k];
+		xVecKey *xk = &xch->transKeys[k];
+		xk->time = pk->mTime / tps;
+		xk->v = vec3(pk->mValue.x, pk->mValue.y, pk->mValue.z);
+	}
+	for(int k = 0; k < xch->numScaleKeys; k++) {
+		aiVectorKey *sk = &ch->mScalingKeys[k];
+		xVecKey *xk = &xch->scaleKeys[k];
+		xk->time = sk->mTime / tps;
+		xk->v = vec3(sk->mValue.x, sk->mValue.y, sk->mValue.z);
+	}
+
+	return xch;
 }
 
 xAnimList*
@@ -467,62 +489,14 @@ convertAssimpAnimations(const aiScene *scene, xModel *mdl)
 	for(u32 i = 0; i < scene->mNumAnimations; i++) {
 		aiAnimation *a = scene->mAnimations[i];
 		xAnimation *xa = &al->anims[i];
+		// key times come in ticks, we want seconds
+		float tps = a->mTicksPerSecond > 0.0 ? a->mTicksPerSecond : 1.0f;
 		xa->name = strdup(a->mName.C_Str());
-		xa->duration = a->mDuration;
-		xa->timescale = a->mTicksPerSecond;
+		xa->duration = a->mDuration / tps;
 		xa->numChannels = a->mNumChannels;
 		xa->channels = (xAnimChannel*)malloc(xa->numChannels * sizeof(xAnimChannel));
-//printf("%s %f %d\n", xa->name, xa->duration, xa->numChannels);
-		for(u32 j = 0; j < a->mNumChannels; j++) {
-			aiNodeAnim *ch = a->mChannels[j];
-			xAnimChannel *xch = &xa->channels[j];
-			xch->name = strdup(ch->mNodeName.C_Str());
-			xch->id = -1;	// TODO
-				//findBone(mdl->skel, xch->name),
-			xch->typemask = 0;
-			xch->numKeys = ch->mNumPositionKeys;
-			if(ch->mNumRotationKeys > (u32)xch->numKeys) xch->numKeys = ch->mNumRotationKeys;
-			if(ch->mNumScalingKeys > (u32)xch->numKeys) xch->numKeys = ch->mNumScalingKeys;
-			xch->keys = (xAnimChannel::Key*)malloc(xch->numKeys * sizeof(xAnimChannel::Key));
-			if(ch->mNumRotationKeys) {
-				xch->typemask |= 1;
-				assert(ch->mNumRotationKeys == (u32)xch->numKeys);
-			}
-			if(ch->mNumPositionKeys) {
-				xch->typemask |= 2;
-				assert(ch->mNumPositionKeys == (u32)xch->numKeys);
-			}
-			if(ch->mNumScalingKeys) {
-				xch->typemask |= 4;
-				assert(ch->mNumScalingKeys == (u32)xch->numKeys);
-			}
-//printf("\t%s %d %d\n", xch->name, xch->id, xch->numKeys);
-			for(int k = 0; k < xch->numKeys; k++) {
-				xAnimChannel::Key *xkey = &xch->keys[k];
-				if(xch->typemask & 1) {
-					aiQuatKey *rk = &ch->mRotationKeys[k];
-					xkey->time = rk->mTime;
-					xkey->rot.w = rk->mValue.w;
-					xkey->rot.x = rk->mValue.x;
-					xkey->rot.y = rk->mValue.y;
-					xkey->rot.z = rk->mValue.z;
-				}
-				if(xch->typemask & 2) {
-					aiVectorKey *pk = &ch->mPositionKeys[k];
-					xkey->time = pk->mTime;
-					xkey->trans.x = pk->mValue.x;
-					xkey->trans.y = pk->mValue.y;
-					xkey->trans.z = pk->mValue.z;
-				}
-				if(xch->typemask & 4) {
-					aiVectorKey *sk = &ch->mScalingKeys[k];
-					xkey->time = sk->mTime;
-					xkey->scale.x = sk->mValue.x;
-					xkey->scale.y = sk->mValue.y;
-					xkey->scale.z = sk->mValue.z;
-				}
-			}
-		}
+		for(u32 j = 0; j < a->mNumChannels; j++)
+			convertAssimpChannel(&xa->channels[j], a->mChannels[j], mdl, tps);
 	}
 
 	return al;

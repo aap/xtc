@@ -40,12 +40,12 @@ XTC_TRILIST = 4
 ---- xtcVertex(x, y, z)
 ---- xtcColor(r, g, b, a)	-- 0-255
 ---- xtcNormal(x, y, z)
----- xtcTexCoord(u, v)
+---- xtcTexCoord(u, v [, q])
 ---- xtcIndices(i1, i2, i3, i4)
 ---- xtcWeights(w1, w2, w3, w4)
 
 
----- xtcSetShader
+---- xtcSetPipeline(pipe)	-- defaultPipeline, skinPipeline, lit4Pipeline, lit8Pipeline
 ---- xtcSetTexture
 ---- xtcSetMaterial
 

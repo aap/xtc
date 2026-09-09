@@ -22,16 +22,30 @@ static constexpr aiImporterDesc desc = {
 	"dff"
 };
 
+// We only care about texture names. The null driver can't create
+// rasters, not even the empty ones librw's dummy textures want.
+static rw::Texture*
+readTextureName(const char *name, const char *mask)
+{
+	rw::Texture *tex = rw::Texture::create(nil);
+	if(tex == nil)
+		return nil;
+	strncpy(tex->name, name, sizeof(tex->name));
+	if(mask)
+		strncpy(tex->mask, mask, sizeof(tex->mask));
+	return tex;
+}
+
 static bool rwinitialized;
 static void
 rwinit(void)
 {
 	if(rwinitialized) return;
-        rw::Engine::init();
-        gta::attachPlugins();
-        rw::Engine::open(nil);
-        rw::Engine::start();
-	rw::Texture::setCreateDummies(1);
+	rw::Engine::init();
+	gta::attachPlugins();
+	rw::Engine::open(nil);
+	rw::Engine::start();
+	rw::Texture::readCB = readTextureName;
 	rwinitialized = true;
 }
 
@@ -50,13 +64,10 @@ struct ImpTemp {
 	std::vector<aiMaterial*> materials;
 };
 
-static void
-ConvertMaterial(ImpTemp &t, rw::Material *m)
+static aiMaterial*
+rwMaterialToAssimpMaterial(ImpTemp &t, rw::Material *m)
 {
 	aiMaterial *am = new aiMaterial();
-	// TODO: don't duplicate materials
-	//	look up existing material and return it
-	t.materials.push_back(am);
 
 	aiColor4D c;
 	c.r = m->color.red   * m->surfaceProps.ambient / 255.0f;
@@ -79,17 +90,19 @@ ConvertMaterial(ImpTemp &t, rw::Material *m)
 		aiString s(m->texture->name);
 		am->AddProperty(&s, AI_MATKEY_TEXTURE_DIFFUSE(0));
 	}
+
+	return am;
 }
 
 static void
-ConvertGeometry(ImpTemp &t, rw::Geometry *g)
+rwGeometryToAssimpMeshes(ImpTemp &t, rw::Geometry *g)
 {
 	using namespace rw;
 	int i, j;
 
 	int first = t.materials.size();
 	for(i = 0; i < g->matList.numMaterials; i++)
-		ConvertMaterial(t, g->matList.materials[i]);
+		t.materials.push_back(rwMaterialToAssimpMaterial(t, g->matList.materials[i]));
 
 	MorphTarget *mt = &g->morphTargets[0];
 	int *imap = new int[g->numVertices];
@@ -175,7 +188,7 @@ ConvertGeometry(ImpTemp &t, rw::Geometry *g)
 }
 
 static aiNode*
-ConvertFrame(ImpTemp &t, rw::Frame *f)
+rwFrameToAssimpNode(ImpTemp &t, rw::Frame *f)
 {
 	using namespace rw;
 	aiNode *n;
@@ -207,7 +220,7 @@ ConvertFrame(ImpTemp &t, rw::Frame *f)
 	FORLIST(lnk, f->objectList) {
 		Object *obj = (Object*)ObjectWithFrame::fromFrame(lnk);
 		if(obj->type != Atomic::ID) continue;
-		ConvertGeometry(t, ((Atomic*)obj)->geometry);
+		rwGeometryToAssimpMeshes(t, ((Atomic*)obj)->geometry);
 	}
 	n->mNumMeshes = t.meshes.size() - first;
 	if(n->mNumMeshes) {
@@ -219,7 +232,7 @@ ConvertFrame(ImpTemp &t, rw::Frame *f)
 	n->mChildren = new aiNode*[f->count()];
 	n->mNumChildren = 0;
         for(Frame *c = f->child; c; c = c->next) {
-		aiNode *cn = ConvertFrame(t, c);
+		aiNode *cn = rwFrameToAssimpNode(t, c);
 		cn->mParent = n;
 		n->mChildren[n->mNumChildren++] = cn;
 	}
@@ -228,11 +241,11 @@ ConvertFrame(ImpTemp &t, rw::Frame *f)
 }
 
 static void
-ConvertClump(aiScene *scn, rw::Clump *c)
+rwClumpToAssimpScene(aiScene *scn, rw::Clump *c)
 {
 	using namespace rw;
 	ImpTemp t;
-	scn->mRootNode = ConvertFrame(t, c->getFrame());
+	scn->mRootNode = rwFrameToAssimpNode(t, c->getFrame());
 	scn->mNumMeshes = t.meshes.size();
 	scn->mNumMaterials = t.materials.size();
 	if(scn->mNumMeshes) {
@@ -282,9 +295,247 @@ DFFImporter::InternReadFile(const std::string &pFile, aiScene *pScene, IOSystem 
 	if(c == nil)
 		throw DeadlyImportError("DFF: Could not read clump");
 
-	ConvertClump(pScene, c);
+	rwClumpToAssimpScene(pScene, c);
 
 	c->destroy();
+}
+
+
+rw::Clump *assimpSceneToRwClump(const aiScene *scene);
+
+struct HierEntry
+{
+	rw::Frame *frm;
+	aiNode *an;
+	aiBone *ab;
+	int boneIdx;
+	int tag;
+};
+
+int
+countNodes(aiNode *node)
+{
+	int n = 1;
+	for(unsigned i = 0; i < node->mNumChildren; i++)
+		n += countNodes(node->mChildren[i]);
+	return n;
+}
+
+
+void
+assimpMatrixToRwMatrix(rw::Matrix *m, const aiMatrix4x4 &mtx)
+{
+	m->right.x = mtx.a1;
+	m->right.y = mtx.b1;
+	m->right.z = mtx.c1;
+
+	m->up.x = mtx.a2;
+	m->up.y = mtx.b2;
+	m->up.z = mtx.c2;
+
+	m->at.x = mtx.a3;
+	m->at.y = mtx.b3;
+	m->at.z = mtx.c3;
+
+	m->pos.x = mtx.a4;
+	m->pos.y = mtx.b4;
+	m->pos.z = mtx.c4;
+
+	m->optimize();
+}
+
+rw::Frame*
+buildRwFrameHierarchy(aiNode *root, HierEntry **hp)
+{
+	rw::Frame *frm = rw::Frame::create();
+	// the node name plugin has room for 24 characters
+	strncpy(gta::getNodeName(frm), root->mName.C_Str(), 24);
+
+	(*hp)->frm = frm;
+	(*hp)->an = root;
+	(*hp)->ab = nil;
+	(*hp)->boneIdx = -1;
+	(*hp)->tag = -1;
+	(*hp)++;
+
+	for(unsigned i = 0; i < root->mNumChildren; i++) {
+		rw::Frame *child = buildRwFrameHierarchy(root->mChildren[i], hp);
+		frm->addChild(child);
+	}
+	assimpMatrixToRwMatrix(&frm->matrix, root->mTransformation);
+
+	return frm;
+}
+
+char*
+getTextureName(const char *path)
+{
+	static char name[24];
+	const char *p = strrchr(path, '\\');
+	if(p == nil) p = strrchr(path, '/');
+	if(p) p++;
+	else p = path;
+
+	const char *e = strrchr(p, '.');
+	int n = strlen(p);
+	if(e && strlen(e+1) <= 4) n = e-p;
+	if(n > 24) n = 24;
+	strncpy(name, p, n);
+
+	return name;
+}
+
+rw::Material*
+assimpMaterialToRwMaterial(const aiMaterial *am)
+{
+	rw::Material *mat = rw::Material::create();
+
+	aiString path;
+	for(unsigned j = 0; j < am->GetTextureCount(aiTextureType_DIFFUSE); j++) {
+		am->GetTexture(aiTextureType_DIFFUSE, j, &path);
+		char *name = getTextureName((char*)path.C_Str());
+		mat->texture = rw::Texture::read(name, nil);
+	}
+
+	return mat;
+}
+
+rw::Atomic*
+assimpMeshesToAtomic(const aiScene *scn, aiNode *node, rw::Frame *frm)
+{
+	int numVerts = 0;
+	int numTris = 0;
+	int numTexCoordSets = 0;
+	int flags = rw::Geometry::POSITIONS | rw::Geometry::LIGHT | rw::Geometry::MODULATE;
+
+	for(unsigned i = 0; i < node->mNumMeshes; i++) {
+		aiMesh *m = scn->mMeshes[node->mMeshes[i]];
+		numVerts += m->mNumVertices;
+		numTris += m->mNumFaces;
+
+		if(m->mPrimitiveTypes != aiPrimitiveType_TRIANGLE) {
+			fprintf(stderr, "warning: not triangle mesh, skipping atomic\n");
+			return nil;
+		}
+
+		if(m->HasNormals()) flags |= rw::Geometry::NORMALS;
+		if(m->HasVertexColors(0)) flags |= rw::Geometry::PRELIT;
+		int t = m->GetNumUVChannels();
+		if(t > numTexCoordSets)
+			numTexCoordSets = t;
+	}
+	if(numTexCoordSets > 8) numTexCoordSets = 8;
+	if(numTexCoordSets > 0) flags |= rw::Geometry::TEXTURED;
+	if(numTexCoordSets > 1) flags |= rw::Geometry::TEXTURED2;
+	flags |= numTexCoordSets << 16;
+
+	if(numVerts == 0 || numTris == 0)
+		return nil;
+
+	rw::Geometry *geo = rw::Geometry::create(numVerts, numTris, flags);
+	int voff = 0;
+	int foff = 0;
+	for(unsigned i = 0; i < node->mNumMeshes; i++) {
+		aiMesh *m = scn->mMeshes[node->mMeshes[i]];
+
+		rw::Material *mat = assimpMaterialToRwMaterial(scn->mMaterials[m->mMaterialIndex]);
+		geo->matList.appendMaterial(mat);
+		mat->destroy();
+
+		rw::Triangle *tris = geo->triangles;
+		for(unsigned j = 0; j < m->mNumFaces; j++) {
+			aiFace *f = &m->mFaces[j];
+			tris[foff+j].v[0] = f->mIndices[0] + voff;
+			tris[foff+j].v[1] = f->mIndices[1] + voff;
+			tris[foff+j].v[2] = f->mIndices[2] + voff;
+			tris[foff+j].matId = i;
+		}
+
+		rw::V3d *verts = geo->morphTargets[0].vertices;
+		for(unsigned j = 0; j < m->mNumVertices; j++) {
+			verts[voff+j].x = m->mVertices[j].x;
+			verts[voff+j].y = m->mVertices[j].y;
+			verts[voff+j].z = m->mVertices[j].z;
+		}
+
+		rw::V3d *normals = geo->morphTargets[0].normals;
+		if(normals) for(unsigned j = 0; j < m->mNumVertices; j++) {
+			normals[voff+j].x = m->mNormals[j].x;
+			normals[voff+j].y = m->mNormals[j].y;
+			normals[voff+j].z = m->mNormals[j].z;
+		}
+
+		rw::RGBA *colors = geo->colors;
+		if(colors) for(unsigned j = 0; j < m->mNumVertices; j++) {
+			colors[voff+j].red   = m->mColors[0][j].r*255.0f;
+			colors[voff+j].green = m->mColors[0][j].g*255.0f;
+			colors[voff+j].blue  = m->mColors[0][j].b*255.0f;
+			colors[voff+j].alpha = m->mColors[0][j].a*255.0f;
+		}
+
+		for(int t = 0; t < numTexCoordSets; t++) {
+			rw::TexCoords *tex = geo->texCoords[t];
+			for(unsigned j = 0; j < m->mNumVertices; j++) {
+				tex[voff+j].u = m->mTextureCoords[t][j].x;
+				tex[voff+j].v = 1.0f-m->mTextureCoords[t][j].y;
+			}
+		}
+
+		voff += m->mNumVertices;
+		foff += m->mNumFaces;
+	}
+	geo->calculateBoundingSphere();
+	geo->unlock();
+
+	rw::Atomic *atm = rw::Atomic::create();
+	atm->setGeometry(geo, 0);
+	atm->setFrame(frm);
+
+	return atm;
+}
+
+int
+writeAssimpSceneAsDFF(const aiScene *scene, const char *path)
+{
+	rw::Clump *clp = assimpSceneToRwClump(scene);
+	rw::StreamFile out;
+	if(!out.open(path, "wb")) {
+		clp->destroy();
+		return 0;
+	}
+	clp->streamWrite(&out);
+	out.close();
+	clp->destroy();
+	return 1;
+}
+
+rw::Clump*
+assimpSceneToRwClump(const aiScene *scene)
+{
+	rw::Clump *c;
+
+	rwinit();
+
+	c = rw::Clump::create();
+
+	int numNodes = countNodes(scene->mRootNode);
+	HierEntry *hier = (HierEntry*)malloc(sizeof(HierEntry) * (numNodes+1));
+	HierEntry *hp = hier;
+	c->setFrame(buildRwFrameHierarchy(scene->mRootNode, &hp));
+	hier[numNodes].frm = nil;
+	hier[numNodes].an = nil;
+
+	for(int i = 0; i < numNodes; i++) {
+		rw::Frame *frm = hier[i].frm;
+		aiNode *an = hier[i].an;
+		rw::Atomic *atm = assimpMeshesToAtomic(scene, an, frm);
+		if(atm)
+			c->addAtomic(atm);
+	}
+
+	free(hier);
+
+	return c;
 }
 
 }

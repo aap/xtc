@@ -366,7 +366,7 @@ xtcpSetMicrocode(xtcMicrocode *code)
 
 // TODO: not quite happy with this
 void
-xtcpUseTexture(xtcRaster *r)
+xtcpUseTexture(xtcTexture *r)
 {
 	if(xtcState.tme && r) {
 		xtcgRegs.prmode |= 1<<4;

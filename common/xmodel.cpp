@@ -1,9 +1,32 @@
-#include "app.h"
 #include "xtc.h"
 #include "xmodel.h"
 #include "chunk.h"
 
-int readfile(const char *path, u8 **data, u32 *size);
+void*
+emalloc(size_t sz)
+{
+	void *p;
+	p = malloc(sz);
+	assert(p);
+	memset(p, 0, sz);
+	return p;
+}
+
+int
+readfile(const char *path, uint8 **data, uint32 *size)
+{
+	FILE *f;
+	f = fopen(path, "rb");
+	if(f == nil)
+		return 0;
+	fseek(f, 0, SEEK_END);
+	*size = ftell(f);
+	*data = (uint8*)malloc(*size);
+	fseek(f, 0, SEEK_SET);
+	fread(*data, 1, *size, f);
+	fclose(f);
+	return 1;
+}
 
 static char *ind(int level) {
 	static char spaces[1000];
@@ -23,14 +46,14 @@ allocXNode(void)
 xSkin*
 allocXSkin(int nbones, int nvertices)
 {
-	u32 sz = sizeof(xSkin) +
-		nvertices*(sizeof(u8[4]) + sizeof(float[4]) +
-		nbones*sizeof(mat4));
+	uint32 sz = sizeof(xSkin) +
+		nvertices*(sizeof(uint8[4]) + sizeof(float[4]) +
+		nbones*sizeof(Mat4));
 	xSkin *s = (xSkin*)emalloc(sz);
 	s->numBones = nbones;
-	s->invMatrices = (mat4*)(s+1);
+	s->invMatrices = (Mat4*)(s+1);
 	s->weights = (float*)(s->invMatrices + s->numBones);
-	s->indices = (u8*)(s->weights + nvertices*4);
+	s->indices = (uint8*)(s->weights + nvertices*4);
 	return s;
 }
 
@@ -38,10 +61,10 @@ xSkeleton*
 allocXSkeleton(int nbones)
 {
 	xSkeleton *s = (xSkeleton*)emalloc(sizeof(xSkeleton)
-		+ nbones*(sizeof(xBone) + sizeof(mat4)));
+		+ nbones*(sizeof(xBone) + sizeof(Mat4)));
 	s->numBones = nbones;
 	s->bones = (xBone*)(s+1);
-	s->matrices = (mat4*)(s->bones+s->numBones);
+	s->matrices = (Mat4*)(s->bones+s->numBones);
 	return s;
 }
 
@@ -67,13 +90,13 @@ dumpAssimpMaterial(FILE *file, aiMaterial *mat, int n)
 	fprintf(file, "material %d\n", n);
 
 	mat->Get(AI_MATKEY_COLOR_AMBIENT, color);
-	fprintf(file, "\tambient %g %g %g %g\n", color.r, color.g, color.b, color.a);
+	fprintf(file, "\tambient %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	mat->Get(AI_MATKEY_COLOR_DIFFUSE, color);
-	fprintf(file, "\tdiffuse %g %g %g %g\n", color.r, color.g, color.b, color.a);
+	fprintf(file, "\tdiffuse %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	mat->Get(AI_MATKEY_COLOR_SPECULAR, color);
-	fprintf(file, "\tspecular %g %g %g %g\n", color.r, color.g, color.b, color.a);
+	fprintf(file, "\tspecular %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	mat->Get(AI_MATKEY_COLOR_EMISSIVE, color);
-	fprintf(file, "\temissive %g %g %g %g\n", color.r, color.g, color.b, color.a);
+	fprintf(file, "\temissive %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	mat->Get(AI_MATKEY_SHININESS, f);
 	fprintf(file, "\tshininess %g\n", f);
 
@@ -100,13 +123,13 @@ dumpAssimpMesh(FILE *file, aiMesh *mesh, int n)
 	fprintf(file, "\tnumVerts %d\n", mesh->mNumVertices);
 	fprintf(file, "\tnumFaces %d\n", mesh->mNumFaces);
 
-	for(u32 i = 0; i < mesh->mNumVertices; i++) {
+	for(uint32 i = 0; i < mesh->mNumVertices; i++) {
 		fprintf(file, "\tv %f %f %f\n", v[i].x, v[i].y, v[i].z);
 		fprintf(file, "\tn %f %f %f\n", nm[i].x, nm[i].y, nm[i].z);
 		fprintf(file, "\tt %f %f\n", uv[i].x, uv[i].y);
 	}
 
-	for(u32 i = 0; i < mesh->mNumFaces; i++) {
+	for(uint32 i = 0; i < mesh->mNumFaces; i++) {
 		aiFace *f = &mesh->mFaces[i];
 		fprintf(file, "\tf %d %d %d\n", f->mIndices[0], f->mIndices[1], f->mIndices[2]);
 	}
@@ -127,9 +150,9 @@ dumpAssimpHierarchy(FILE *file, aiNode *node, int level)
 		mtx.a4, mtx.b4, mtx.c4);
 	if(node->mNumMeshes > 0)
 		OUT(file, "numMeshes %d\n", node->mNumMeshes);
-	for(u32 i = 0; i < node->mNumMeshes; i++)
+	for(uint32 i = 0; i < node->mNumMeshes; i++)
 		OUT(file, "mesh %d\n", node->mMeshes[i]);
-	for(u32 i = 0; i < node->mNumChildren; i++)
+	for(uint32 i = 0; i < node->mNumChildren; i++)
 		dumpAssimpHierarchy(file, node->mChildren[i], level);
 	level--;
 	OUT(file, "endnode\n");
@@ -140,9 +163,9 @@ dumpAssimpScene(FILE *file, const aiScene *scene)
 {
 	fprintf(file, "numMaterials %d\n", scene->mNumMaterials);
 	fprintf(file, "numMeshes %d\n", scene->mNumMeshes);
-	for(u32 i = 0; i < scene->mNumMaterials; i++)
+	for(uint32 i = 0; i < scene->mNumMaterials; i++)
 		dumpAssimpMaterial(file, scene->mMaterials[i], i);
-	for(u32 i = 0; i < scene->mNumMeshes; i++)
+	for(uint32 i = 0; i < scene->mNumMeshes; i++)
 		dumpAssimpMesh(file, scene->mMeshes[i], i);
 	dumpAssimpHierarchy(file, scene->mRootNode, 0);
 }
@@ -153,14 +176,14 @@ dumpAssimpScene(FILE *file, const aiScene *scene)
 
 
 void
-writeXMatrix(FILE *f, const char *name, mat4 &m, int level)
+writeXMatrix(FILE *f, const char *name, Mat4 &m, int level)
 {
 	OUT(f, "%s %g %g %g  %g %g %g  %g %g %g  %g %g %g\n",
 		name,
-		m[0][0], m[0][1], m[0][2],
-		m[1][0], m[1][1], m[1][2],
-		m[2][0], m[2][1], m[2][2],
-		m[3][0], m[3][1], m[3][2]);
+		m.x.x, m.x.y, m.x.z,
+		m.y.x, m.y.y, m.y.z,
+		m.z.x, m.z.y, m.z.z,
+		m.w.x, m.w.y, m.w.z);
 }
 
 int
@@ -178,14 +201,14 @@ writeXMaterial(FILE *f, xMaterial *mat, int n)
 {
 	fprintf(f, "material %d\n", n);
 
-	vec4 color = mat->material.ambient;
-	fprintf(f, "\tambient %g %g %g %g\n", color.r, color.g, color.b, color.a);
+	Vec4 color = mat->material.ambient;
+	fprintf(f, "\tambient %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	color = mat->material.diffuse;
-	fprintf(f, "\tdiffuse %g %g %g %g\n", color.r, color.g, color.b, color.a);
+	fprintf(f, "\tdiffuse %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	color = mat->material.specular;
-	fprintf(f, "\tspecular %g %g %g %g\n", color.r, color.g, color.b, color.a);
+	fprintf(f, "\tspecular %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	color = mat->material.emissive;
-	fprintf(f, "\temissive %g %g %g %g\n", color.r, color.g, color.b, color.a);
+	fprintf(f, "\temissive %g %g %g %g\n", color.x, color.y, color.z, color.w);
 	fprintf(f, "\tshininess %g\n", mat->material.shininess);
 
 	if(mat->tex)
@@ -203,7 +226,6 @@ writeXMesh(FILE *f, xModel *mdl, xMesh *mesh, int n)
 	fprintf(f, "\tmaterial %d\n", findPtr(mesh->material, (void**)mdl->materials, mdl->numMaterials));
 	g = mesh->geo;
 	assert(g);
-	assert(mesh->prims == nil);
 
 	fprintf(f, "\tnumVerts %d\n", g->numVertices);
 	fprintf(f, "\tnumFaces %d\n", g->numIndices/3);
@@ -213,6 +235,7 @@ writeXMesh(FILE *f, xModel *mdl, xMesh *mesh, int n)
 		fprintf(f, "\tv %f %f %f\n", vx->vtx[0], vx->vtx[1], vx->vtx[2]);
 		fprintf(f, "\tn %f %f %f\n", vx->nrm[0], vx->nrm[1], vx->nrm[2]);
 		fprintf(f, "\tt %f %f\n", vx->tex[0], vx->tex[1]);
+		fprintf(f, "\tc %d %d %d %d\n", vx->col[0], vx->col[1], vx->col[2], vx->col[3]);
 		vx++;
 	}
 
@@ -225,7 +248,7 @@ writeXMesh(FILE *f, xModel *mdl, xMesh *mesh, int n)
 
 		fprintf(f, "\tskin %d\n", s->numBones);
 		float *w = s->weights;
-		u8 *x = s->indices;
+		uint8 *x = s->indices;
 		for(int i = 0; i < g->numVertices; i++) {
 			fprintf(f, "\tw %f %f %f %f\n", w[i*4+0],  w[i*4+1],  w[i*4+2],  w[i*4+3]);
 			fprintf(f, "\ti %d %d %d %d\n", x[i*4+0],  x[i*4+1],  x[i*4+2],  x[i*4+3]);
@@ -285,28 +308,30 @@ writeXModel(FILE *f, xModel *mdl)
 }
 
 
-void
+static void
 writeXAnimChannel(FILE *f, xAnimChannel *c)
 {
-	fprintf(f, "channel \"%s\" %d %d %d\n",
-		c->name, c->id, c->typemask, c->numKeys);
-	for(int i = 0; i < c->numKeys; i++) {
-		xAnimChannel::Key *k = &c->keys[i];
-		fprintf(f, "\tkey %d %f\n", i, k->time);
-		if(c->typemask & 1)
-			fprintf(f, "\trot %f %f %f %f\n", k->rot.w, k->rot.x, k->rot.y, k->rot.z);
-		if(c->typemask & 2)
-			fprintf(f, "\ttrans %f %f %f\n", k->trans.x, k->trans.y, k->trans.z);
-		if(c->typemask & 4)
-			fprintf(f, "\tscale %f %f %f\n", k->scale.x, k->scale.y, k->scale.z);
+	fprintf(f, "channel \"%s\" %d %d %d %d\n",
+		c->name, c->id, c->numRotKeys, c->numTransKeys, c->numScaleKeys);
+	for(int i = 0; i < c->numRotKeys; i++) {
+		xRotKey *k = &c->rotKeys[i];
+		fprintf(f, "\trot %f %f %f %f %f\n", k->time, k->rot.x, k->rot.y, k->rot.z, k->rot.w);
+	}
+	for(int i = 0; i < c->numTransKeys; i++) {
+		xVecKey *k = &c->transKeys[i];
+		fprintf(f, "\ttrans %f %f %f %f\n", k->time, k->v.x, k->v.y, k->v.z);
+	}
+	for(int i = 0; i < c->numScaleKeys; i++) {
+		xVecKey *k = &c->scaleKeys[i];
+		fprintf(f, "\tscale %f %f %f %f\n", k->time, k->v.x, k->v.y, k->v.z);
 	}
 }
 
-void
+static void
 writeXAnimation(FILE *f, xAnimation *a)
 {
-	fprintf(f, "anim \"%s\" %f %f %d\n",
-		a->name, a->duration, a->timescale, a->numChannels);
+	fprintf(f, "anim \"%s\" %f %d\n",
+		a->name, a->duration, a->numChannels);
 	for(int i = 0; i < a->numChannels; i++)
 		writeXAnimChannel(f, &a->channels[i]);
 }
@@ -338,28 +363,47 @@ static const char *extensions[] = {
 	nil
 };
 
-xTexture*
-readTexture(char *name)
+static xTexture*
+allocXTexture(const char *name)
 {
 	xTexture *tex;
-	char abspath[1024];
-	u8 *data;
-	u32 size;
-
 	tex = (xTexture*)emalloc(sizeof(xTexture)+strlen(name)+1);
 	tex->name = (char*)(tex+1);
 	strcpy(tex->name, name);
+	return tex;
+}
 
+xTexture*
+createTexturePNG(const char *name, const uint8 *data, uint32 size)
+{
+	xTexture *tex = allocXTexture(name);
+	tex->tex = xtcTextureReadPNG(data, size);
+	return tex;
+}
+
+// looks for a PNG file in texpath
+xTexture*
+readTexture(const char *name)
+{
+	xTexture *tex;
+	char abspath[1024];
+	uint8 *data;
+	uint32 size;
+
+	tex = allocXTexture(name);
 	for(int i = 0; extensions[i]; i++) {
-		sprintf(abspath, "%s/%s%s", texpath, name, extensions[i]);
+		snprintf(abspath, sizeof(abspath), "%s/%s%s", texpath, name, extensions[i]);
 		if(readfile(abspath, &data, &size)) {
-			tex->tex = xtcCreateTexturePNG(data, size);
+			tex->tex = xtcTextureReadPNG(data, size);
 			free(data);
 			return tex;
 		}
 	}
+	fprintf(stderr, "warning: texture %s not found in %s\n", name, texpath);
 	return tex;
 }
+
+const char *texpath = ".";
 
 extern "C" int tokenize(char *s, char **args, int maxargs);
 
@@ -434,26 +478,26 @@ allocXGeo(xMesh *m, int numVerts, int numIndices)
 	m->geo = g;
 }
 
-mat4
+Mat4
 readXMatrix(char **tokens)
 {
-	mat4 m;
-	m[0][0] = atof(tokens[0]);
-	m[0][1] = atof(tokens[1]);
-	m[0][2] = atof(tokens[2]);
-	m[0][3] = 0.0f;
-	m[1][0] = atof(tokens[3]);
-	m[1][1] = atof(tokens[4]);
-	m[1][2] = atof(tokens[5]);
-	m[1][3] = 0.0f;
-	m[2][0] = atof(tokens[6]);
-	m[2][1] = atof(tokens[7]);
-	m[2][2] = atof(tokens[8]);
-	m[2][3] = 0.0f;
-	m[3][0] = atof(tokens[9]);
-	m[3][1] = atof(tokens[10]);
-	m[3][2] = atof(tokens[11]);
-	m[3][3] = 1.0f;
+	Mat4 m;
+	m.x.x = atof(tokens[0]);
+	m.x.y = atof(tokens[1]);
+	m.x.z = atof(tokens[2]);
+	m.x.w = 0.0f;
+	m.y.x = atof(tokens[3]);
+	m.y.y = atof(tokens[4]);
+	m.y.z = atof(tokens[5]);
+	m.y.w = 0.0f;
+	m.z.x = atof(tokens[6]);
+	m.z.y = atof(tokens[7]);
+	m.z.z = atof(tokens[8]);
+	m.z.w = 0.0f;
+	m.w.x = atof(tokens[9]);
+	m.w.y = atof(tokens[10]);
+	m.w.z = atof(tokens[11]);
+	m.w.w = 1.0f;
 	return m;
 }
 
@@ -472,9 +516,8 @@ findXNode(xNode *root, const char *name)
 xModel*
 loadXModel(FILE *file)
 {
-	char *line = nil;
+	char line[4096];
 	char *tokens[1000];
-	size_t len = 0;
 	int n, ntok;
 	xModel *mdl;
 	xMaterial *mat = nil;
@@ -488,7 +531,7 @@ loadXModel(FILE *file)
 
 	mdl = (xModel*)emalloc(sizeof(xModel));
 
-	while(n = getline(&line, &len, file), n > 0) {
+	while(fgets(line, sizeof(line), file)) {
 		ntok = tokenize(line, tokens, 1000);
 		if(ntok < 1) continue;
 		switch(lookup(cmds, tokens[0])) {
@@ -533,31 +576,31 @@ loadXModel(FILE *file)
 			break;
 		case CMD_AMBIENT:
 			assert(mat);
-			mat->material.ambient.r = atof(tokens[1]);
-			mat->material.ambient.g = atof(tokens[2]);
-			mat->material.ambient.b = atof(tokens[3]);
-			mat->material.ambient.a = atof(tokens[4]);
+			mat->material.ambient.x = atof(tokens[1]);
+			mat->material.ambient.y = atof(tokens[2]);
+			mat->material.ambient.z = atof(tokens[3]);
+			mat->material.ambient.w = atof(tokens[4]);
 			break;
 		case CMD_DIFFUSE:
 			assert(mat);
-			mat->material.diffuse.r = atof(tokens[1]);
-			mat->material.diffuse.g = atof(tokens[2]);
-			mat->material.diffuse.b = atof(tokens[3]);
-			mat->material.diffuse.a = atof(tokens[4]);
+			mat->material.diffuse.x = atof(tokens[1]);
+			mat->material.diffuse.y = atof(tokens[2]);
+			mat->material.diffuse.z = atof(tokens[3]);
+			mat->material.diffuse.w = atof(tokens[4]);
 			break;
 		case CMD_SPECULAR:
 			assert(mat);
-			mat->material.specular.r = atof(tokens[1]);
-			mat->material.specular.g = atof(tokens[2]);
-			mat->material.specular.b = atof(tokens[3]);
-			mat->material.specular.a = atof(tokens[4]);
+			mat->material.specular.x = atof(tokens[1]);
+			mat->material.specular.y = atof(tokens[2]);
+			mat->material.specular.z = atof(tokens[3]);
+			mat->material.specular.w = atof(tokens[4]);
 			break;
 		case CMD_EMISSIVE:
 			assert(mat);
-			mat->material.emissive.r = atof(tokens[1]);
-			mat->material.emissive.g = atof(tokens[2]);
-			mat->material.emissive.b = atof(tokens[3]);
-			mat->material.emissive.a = atof(tokens[4]);
+			mat->material.emissive.x = atof(tokens[1]);
+			mat->material.emissive.y = atof(tokens[2]);
+			mat->material.emissive.z = atof(tokens[3]);
+			mat->material.emissive.w = atof(tokens[4]);
 			break;
 		case CMD_SHININESS:
 			assert(mat);
@@ -746,7 +789,6 @@ loadXModel(FILE *file)
 		}
 	}
 
-	free(line);
 	return mdl;
 }
 
@@ -766,7 +808,7 @@ buildXModel(xModel *mdl)
 		xtcBegin(XTC_TRILIST);
 		for(int i = 0; i < g->numIndices; i++) {
 			if(m->skin) {
-				u8 *is = &m->skin->indices[4*g->indices[i]];
+				uint8 *is = &m->skin->indices[4*g->indices[i]];
 				float *ws = &m->skin->weights[4*g->indices[i]];
 				xtcIndices(is[0], is[1], is[2], is[3]);
 				xtcWeights(ws[0], ws[1], ws[2], ws[3]);
@@ -782,8 +824,56 @@ buildXModel(xModel *mdl)
 		xtcEndList();
 
 //		free(g);
-		m->geo = nil;
+//		m->geo = nil;
 	}
+}
+
+
+static void
+nodeBounds(xNode *n, const Mat4 &parent, xSkeleton *skel, Vec3 *bmin, Vec3 *bmax)
+{
+	Mat4 world = parent * n->localMatrix;
+	for(int i = 0; i < n->numMeshes; i++) {
+		xMesh *m = n->meshes[i];
+		xGeometry *g = m->geo;
+		if(g == nil)
+			continue;
+		bool skinned = m->skin && skel;
+		for(int j = 0; j < g->numVertices; j++) {
+			xVertex *vx = &g->vertices[j];
+			Vec4 v = vec4(vx->vtx[0], vx->vtx[1], vx->vtx[2], 1.0f);
+			Vec3 p;
+			if(skinned) {
+				p = vec3(0.0f, 0.0f, 0.0f);
+				for(int k = 0; k < 4; k++) {
+					float w = m->skin->weights[4*j+k];
+					int b = m->skin->indices[4*j+k];
+					if(w > 0.0f)
+						p += w * v4tov3(skel->matrices[b] * m->skin->invMatrices[b] * v);
+				}
+			} else
+				p = v4tov3(world * v);
+			*bmin = v3min(*bmin, p);
+			*bmax = v3max(*bmax, p);
+		}
+	}
+	for(xNode *child = n->child; child; child = child->next)
+		nodeBounds(child, world, skel, bmin, bmax);
+}
+
+// skinned meshes use whatever pose the skeleton is in
+void
+xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius)
+{
+	Vec3 bmin = vec3(1e30f, 1e30f, 1e30f), bmax = vec3(-1e30f, -1e30f, -1e30f);
+	nodeBounds(mdl->root, m4ident(), mdl->skel, &bmin, &bmax);
+	if(bmin.x > bmax.x) {
+		*center = vec3(0.0f, 0.0f, 0.0f);
+		*radius = 1.0f;
+		return;
+	}
+	*center = (bmin + bmax) * 0.5f;
+	*radius = v3norm(bmax - bmin) * 0.5f;
 }
 
 
@@ -791,7 +881,6 @@ buildXModel(xModel *mdl)
 	X("numAnimations", CMD_NUM_ANIMATIONS) \
 	X("anim", CMD_ANIM) \
 	X("channel", CMD_CHANNEL) \
-	X("key", CMD_KEY) \
 	X("rot", CMD_ROT) \
 	X("trans", CMD_TRANS) \
 	X("scale", CMD_SCALE) \
@@ -810,26 +899,29 @@ static Cmd acmds[] = {
 	{ nil, -1 }
 };
 
+static Vec3
+readVec3(char **tokens)
+{
+	return vec3(atof(tokens[0]), atof(tokens[1]), atof(tokens[2]));
+}
 
 xAnimList*
 loadXAnimList(FILE *file)
 {
-	char *line = nil;
+	char line[4096];
 	char *tokens[1000];
-	size_t len = 0;
-	int n, ntok;
+	int ntok;
 	xAnimList *al;
 	xAnimation *anim;
 	xAnimChannel *chan;
-	xAnimChannel::Key *key;
-	int na, nc, nk;
+	int na, nc, nr, nt, ns;
 
 	al = nil;
 	anim = nil;
 	chan = nil;
-	key = nil;
+	na = nc = nr = nt = ns = 0;
 
-	while(n = getline(&line, &len, file), n > 0) {
+	while(fgets(line, sizeof(line), file)) {
 		ntok = tokenize(line, tokens, 1000);
 		if(ntok < 1) continue;
 		switch(lookup(acmds, tokens[0])) {
@@ -845,8 +937,7 @@ loadXAnimList(FILE *file)
 			anim = &al->anims[na++];
 			anim->name = strdup(tokens[1]);
 			anim->duration = atof(tokens[2]);
-			anim->timescale = atof(tokens[3]);
-			anim->numChannels = atoi(tokens[4]);
+			anim->numChannels = atoi(tokens[3]);
 			anim->channels = (xAnimChannel*)emalloc(anim->numChannels * sizeof(xAnimChannel));
 			nc = 0;
 			break;
@@ -857,40 +948,40 @@ loadXAnimList(FILE *file)
 			chan = &anim->channels[nc++];
 			chan->name = strdup(tokens[1]);
 			chan->id = atoi(tokens[2]);
-			chan->typemask = atoi(tokens[3]);
-			chan->numKeys = atoi(tokens[4]);
-			chan->keys = (xAnimChannel::Key*)emalloc(chan->numKeys * sizeof(xAnimChannel::Key));
-			nk = 0;
-			break;
-
-		case CMD_KEY:
-			assert(chan);
-			assert(nk == atoi(tokens[1]));
-			assert(nk < chan->numKeys);
-			key = &chan->keys[nk++];
-			key->time = atof(tokens[2]);
+			chan->numRotKeys = atoi(tokens[3]);
+			chan->numTransKeys = atoi(tokens[4]);
+			chan->numScaleKeys = atoi(tokens[5]);
+			chan->rotKeys = chan->numRotKeys ? (xRotKey*)emalloc(chan->numRotKeys * sizeof(xRotKey)) : nil;
+			chan->transKeys = chan->numTransKeys ? (xVecKey*)emalloc(chan->numTransKeys * sizeof(xVecKey)) : nil;
+			chan->scaleKeys = chan->numScaleKeys ? (xVecKey*)emalloc(chan->numScaleKeys * sizeof(xVecKey)) : nil;
+			nr = nt = ns = 0;
 			break;
 
 		case CMD_ROT:
-			assert(key);
-			key->rot.w = atof(tokens[1]);
-			key->rot.x = atof(tokens[2]);
-			key->rot.y = atof(tokens[3]);
-			key->rot.z = atof(tokens[4]);
+			assert(chan);
+			assert(nr < chan->numRotKeys);
+			chan->rotKeys[nr].time = atof(tokens[1]);
+			chan->rotKeys[nr].rot.x = atof(tokens[2]);
+			chan->rotKeys[nr].rot.y = atof(tokens[3]);
+			chan->rotKeys[nr].rot.z = atof(tokens[4]);
+			chan->rotKeys[nr].rot.w = atof(tokens[5]);
+			nr++;
 			break;
 
 		case CMD_TRANS:
-			assert(key);
-			key->trans.x = atof(tokens[1]);
-			key->trans.y = atof(tokens[2]);
-			key->trans.z = atof(tokens[3]);
+			assert(chan);
+			assert(nt < chan->numTransKeys);
+			chan->transKeys[nt].time = atof(tokens[1]);
+			chan->transKeys[nt].v = readVec3(tokens+2);
+			nt++;
 			break;
 
 		case CMD_SCALE:
-			assert(key);
-			key->scale.x = atof(tokens[1]);
-			key->scale.y = atof(tokens[2]);
-			key->scale.z = atof(tokens[3]);
+			assert(chan);
+			assert(ns < chan->numScaleKeys);
+			chan->scaleKeys[ns].time = atof(tokens[1]);
+			chan->scaleKeys[ns].v = readVec3(tokens+2);
+			ns++;
 			break;
 
 		case -1:
@@ -899,7 +990,6 @@ loadXAnimList(FILE *file)
 		}
 	}
 
-	free(line);
 	return al;
 }
 
@@ -943,7 +1033,7 @@ saveXSkinChunk(ChunkData *chk, xGeometry *geo, xSkin *skin)
 	registerPointer(chk, &skin->invMatrices);
 	registerPointer(chk, &skin->indices);
 	registerPointer(chk, &skin->weights);
-	registerBlock(chk, skin->invMatrices, skin->numBones*sizeof(mat4), 16);
+	registerBlock(chk, skin->invMatrices, skin->numBones*sizeof(Mat4), 16);
 	registerBlock(chk, skin->indices, geo->numVertices*4*sizeof(*skin->indices), 4);
 	registerBlock(chk, skin->weights, geo->numVertices*4*sizeof(*skin->weights), 16);
 }
@@ -953,8 +1043,9 @@ saveXMeshChunk(ChunkData *chk, xMesh *mesh)
 {
 	if(registerBlock(chk, mesh, sizeof(*mesh), 16))
 		return;
-// TODO: native geometry
-	assert(mesh->prims == nil);
+	// TODO: native geometry. for now the platform data is
+	// rebuilt after loading, so don't save the pointer
+	mesh->prims = nil;
 	registerPointer(chk, &mesh->prims);
 	registerPointer(chk, &mesh->material);
 	assert(mesh->geo);
@@ -1004,7 +1095,7 @@ saveXNodeChunk(ChunkData *chk, xNode *node)
 		saveXSkeletonChunk(chk, node->skel);
 }
 
-void
+static void
 saveXModelChunk(ChunkData *chk, xModel *mdl)
 {
 	int i;
@@ -1036,10 +1127,16 @@ void
 writeXModelChunk(FILE *f, xModel *mdl)
 {
 	ChunkData *chk;
+	xtcPrimList **prims = (xtcPrimList**)malloc(mdl->numMeshes*sizeof(xtcPrimList*));
+	for(int i = 0; i < mdl->numMeshes; i++)
+		prims[i] = mdl->meshes[i]->prims;
 	chk = makeChunkData();
 	saveXModelChunk(chk, mdl);
 	writeChunk(chk, f);
 	freeChunkData(chk);
+	for(int i = 0; i < mdl->numMeshes; i++)
+		mdl->meshes[i]->prims = prims[i];
+	free(prims);
 }
 
 
@@ -1063,28 +1160,41 @@ loadXModelChunk(FILE *f)
 
 
 
-void
+static void
 saveXAnimListChunk(ChunkData *chk, xAnimList *alist)
 {
+	int i, j;
+
 	if(registerBlock(chk, alist, sizeof(*alist), 16))
 		return;
 	registerPointer(chk, &alist->anims);
+	// pointers have to be registered while their block is the latest one
 	registerBlock(chk, alist->anims, alist->numAnims*sizeof(*alist->anims), PTR);
-	for(int i = 0; i < alist->numAnims; i++) {
+	for(i = 0; i < alist->numAnims; i++) {
 		xAnimation *a = &alist->anims[i];
 		registerPointer(chk, &a->name);
 		registerPointer(chk, &a->channels);
+	}
+	for(i = 0; i < alist->numAnims; i++) {
+		xAnimation *a = &alist->anims[i];
 		registerBlock(chk, a->name, strlen(a->name)+1, 1);
 		registerBlock(chk, a->channels, a->numChannels*sizeof(*a->channels), PTR);
-		for(int j = 0; j < a->numChannels; j++) {
+		for(j = 0; j < a->numChannels; j++) {
 			xAnimChannel *c = &a->channels[j];
 			registerPointer(chk, &c->name);
-			registerPointer(chk, &c->keys);
+			registerPointer(chk, &c->rotKeys);
+			registerPointer(chk, &c->transKeys);
+			registerPointer(chk, &c->scaleKeys);
 		}
-		for(int j = 0; j < a->numChannels; j++) {
+		for(j = 0; j < a->numChannels; j++) {
 			xAnimChannel *c = &a->channels[j];
 			registerBlock(chk, c->name, strlen(c->name)+1, 1);
-			registerBlock(chk, c->keys, c->numKeys*sizeof(*c->keys), 16);
+			if(c->rotKeys)
+				registerBlock(chk, c->rotKeys, c->numRotKeys*sizeof(*c->rotKeys), 16);
+			if(c->transKeys)
+				registerBlock(chk, c->transKeys, c->numTransKeys*sizeof(*c->transKeys), 16);
+			if(c->scaleKeys)
+				registerBlock(chk, c->scaleKeys, c->numScaleKeys*sizeof(*c->scaleKeys), 16);
 		}
 	}
 }

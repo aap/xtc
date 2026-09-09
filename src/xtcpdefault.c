@@ -13,7 +13,7 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	xtcpCombineMatrix();
 	xtcpUploadLights();
 
-	xtcMaterial *m = &xtcState.material;
+	xtcRwMaterial *m = &xtcState.rwMaterial;
 	// TODO: want TME bit more elegantly
 	float *scl = (float*)&xtcState.colorScale[(xtcgRegs.prmode>>4)&1];
 	xtcMicrocodeSwitch *swtch;

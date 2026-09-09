@@ -2,6 +2,9 @@
 
 #include <vector>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
 
 
 #define PI 3.1415926535897932384626433832795f
@@ -15,22 +18,15 @@ typedef uint8_t u8;
 typedef int32_t i32;
 typedef int16_t i16;
 typedef int8_t i8;
+// the names the ps2 side and common/ use
+typedef uint32_t uint32;
+typedef uint16_t uint16;
+typedef uint8_t uint8;
+typedef int32_t int32;
+typedef int16_t int16;
+typedef int8_t int8;
 
-#define GLM_FORCE_RADIANS
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-//#include <glm/gtx/norm.hpp>
-
-using glm::vec2;
-using glm::vec3;
-using glm::vec4;
-using glm::mat4;
-using glm::quat;
-using glm::dot;
-using glm::cross;
-using glm::normalize;
-using glm::value_ptr;
+#include "xmath.h"
 
 struct xtcRGBA
 {
@@ -160,14 +156,27 @@ void xtcPixelMask(u32 mask);
 void xtcDepthMask(int mask);
 */
 
-struct xtcShader
+/*
+ * A pipeline is the programmable part of the drawing path: on the PS2 a
+ * piece of VU1 microcode plus the function that uploads its constants,
+ * here a GL program.  Every pipeline reads the current material and
+ * light set in its own way.
+ */
+struct xtcPipeline
 {
 	void (*upload)(void);
 	// on PS2 we'd have some info on VU layout here
 };
-void xtcSetShader(xtcShader *sh);
-xtcShader *xtcGetDefaultShader(void);
-xtcShader *xtcGetSkinShader(void);
+void xtcSetPipeline(xtcPipeline *pipe);
+
+// the original sketch: one directional light, blinn specular with a
+// finite viewer.  the skin one is the same with bone matrices
+extern xtcPipeline *defaultPipeline;
+extern xtcPipeline *skinPipeline;
+// the VU1-shaped lighting model, see xtcLight: global ambient,
+// up to 4 or 8 directional diffuse lights, one directional specular
+extern xtcPipeline *lit4Pipeline;
+extern xtcPipeline *lit8Pipeline;
 
 
 
@@ -176,12 +185,12 @@ xtcShader *xtcGetSkinShader(void);
 
 
 
-void xtcSetProjectionMatrix(const mat4 *proj);
-void xtcSetViewMatrix(const mat4 *view);
-void xtcSetWorldMatrix(const mat4 *world);
-void xtcSetWorldMatrix(const mat4 &world);
-mat4 xtcGetWorldMatrix(void);
-void xtcSetBoneMatrices(const mat4 *matrices, int n);
+void xtcSetProjectionMatrix(const Mat4 *proj);
+void xtcSetViewMatrix(const Mat4 *view);
+void xtcSetWorldMatrix(const Mat4 *world);
+void xtcSetWorldMatrix(const Mat4 &world);
+Mat4 xtcGetWorldMatrix(void);
+void xtcSetBoneMatrices(const Mat4 *matrices, int n);
 
 void xtcViewport(int x, int y, int width, int height);
 // TODO
@@ -204,25 +213,38 @@ enum xtcLightType
 	// TODO: spot?
 };
 
+/*
+ * Lights live in world space, colours are 0..1.  direction is the
+ * direction the light shines in.  There are 8 slots; how many of them a
+ * pipeline uses and how is up to the pipeline:
+ *
+ * lit4/lit8: the enabled directional lights in slot order, up to 4 or 8,
+ * are packed into a light matrix in object space, so per vertex the
+ * diffuse term is one matrix multiply, a clamp and a second matrix
+ * multiply with the colours (what the PSP does and what VU1 likes).
+ * The first of them is also the specular light: blinn with an infinite
+ * viewer, so its half vector is a constant too.  specColor of the other
+ * lights is ignored.  Global ambient is added on top.
+ */
 struct xtcLight
 {
 	int enabled;
 	xtcLightType type;
-	vec4 color;
-	vec4 specColor;
-	vec3 direction;
-	vec3 position;
+	Vec4 color;
+	Vec4 specColor;
+	Vec3 direction;
+	Vec3 position;
 };
 void xtcSetAmbient(int r, int g, int b);
 void xtcSetLight(int n, const xtcLight *light);
 
 struct xtcMaterial
 {
-	vec4 colorSelector;	// amb, diff, spec, emiss, 0 - material, 1 - vertex
-	vec4 ambient;
-	vec4 diffuse;
-	vec4 specular;
-	vec4 emissive;
+	Vec4 colorSelector;	// amb, diff, spec, emiss, 0 - material, 1 - vertex
+	Vec4 ambient;
+	Vec4 diffuse;
+	Vec4 specular;
+	Vec4 emissive;
 	float shininess;
 };
 void xtcSetMaterial(const xtcMaterial *mat);
@@ -232,9 +254,9 @@ struct xtcTexture
 	u32 tex;
 	u32 width, height;
 };
-// ps2: xtcBindTexture
-void xtcSetTexture(int n, xtcTexture *tex);
-xtcTexture *xtcCreateTexturePNG(u8 *data, u32 size);
+void xtcSetTextureN(int n, xtcTexture *tex);
+inline void xtcSetTexture(xtcTexture *tex) { xtcSetTextureN(0, tex); }
+xtcTexture *xtcTextureReadPNG(const u8 *data, u32 size);
 
 
 enum xtcTCC {
@@ -288,13 +310,13 @@ enum xtcPrimType
 
 struct xtcImmVertex3D
 {
-	vec3 pos;
+	Vec3 pos;
 	xtcRGBA color;
-	vec3 normal;
-	vec2 texcoord;
+	Vec3 normal;
+	Vec3 texcoord;	// s, t, q
 	// for skinning - maybe skip this for most cases somehow?
 	u32 indices;
-	vec4 weights;
+	Vec4 weights;
 };
 
 struct ImmState
@@ -310,15 +332,20 @@ void xtcBegin(xtcPrimType prim);
 void xtcFlush(void);
 void xtcEnd(void);
 
+void xtcPointSize(float size);
 void xtcVertex3(float x, float y, float z);
-void xtcVertex3v(const vec3 &xyz);
+void xtcVertex3v(const Vec3 &xyz);
 #define xtcVertex xtcVertex3
 void xtcColor(u8 r, u8 g, u8 b, u8 a);
 void xtcColor(const xtcRGBA &rgba);
 void xtcNormal(float x, float y, float z);
-void xtcNormalv(const vec3 &xyz);
-void xtcTexCoord(float s, float t);
-void xtcTexCoordv(const vec2 &st);
+void xtcNormalv(const Vec3 &xyz);
+// q is only meaningful to a 2D pipeline that hands it to the GS as is,
+// the 3D pipelines compute their own.  it defaults to 1
+void xtcTexCoord2(float s, float t);
+void xtcTexCoord3(float s, float t, float q);
+#define xtcTexCoord xtcTexCoord2
+void xtcTexCoordv(const Vec2 &st);
 void xtcIndices(u8 i0, u8 i1, u8 i2, u8 i3);
 void xtcWeights(float w0, float w1, float w2, float w3);
 

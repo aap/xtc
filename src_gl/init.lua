@@ -1,39 +1,13 @@
 require("xmath")
 require("xtc")
 require("camera")
-require("fennel").install().dofile("main.fnl")
-
---[[
-function init()
-	material = xtcMaterial()
-	material.colorSelector = vec4(0, 0, 0, 1)
-	material.ambient = vec4(0, 0, 0, 1)
-	material.diffuse = vec4(0, 0, 0, 1)
-
-	cam = Camera()
-	cam.position = vec3(4,-6,4)*0.7
-	cam.target = vec3(0,0,0)
-	cam.up = vec3(0,0,1)
-
-	setTexPath('/u/aap/3dmodels/gta3_textures')
-	mdl = loadXModelChunk('kuruma.xm.chk')
---	print(package.path)
---	test()
-
-	xtcSetAmbient(100, 100, 100)
-	local l = xtcLight()
-	l.enabled = 1;
-	l.type = XTC_LIGHT_DIRECT;
-	l.color = vec4(0.8, 0.8, 0.8, 1);
-	l.specColor = vec4(1, 1, 1, 1);
-	l.direction = vec3(-1, 1, -1):normalized()
-	xtcSetLight(0, l)
-	light = l
-
-	time = 0
-	print(print_and_add(1,2,3))
+-- the scene script: main.fnl (the model viewer) unless -script says otherwise
+local script = "main.fnl"
+for i, a in ipairs(arg) do
+	if a == "-script" then script = arg[i+1] end
 end
---]]
+require("fennel").install().dofile(script)
+
 
 function test()
 	local A = vec3(1,2)
@@ -95,8 +69,8 @@ print(xxx.__methods)
 end
 
 function drawAxes(scale)
-	xtcSetShader(xtcGetDefaultShader())
-	xtcSetTexture(0, nil)
+	xtcSetPipeline(defaultPipeline)
+	xtcSetTexture(nil)
 	xtcSetMaterial(material)
 
 	local s = scale or 1
@@ -115,6 +89,16 @@ function drawAxes(scale)
 	xtcEnd()
 end
 
+function rotX(phi)
+	local c = math.cos(phi)
+	local s = math.sin(phi)
+	local m = { { 1, 0, 0, 0 },
+	            { 0, c, -s, 0 },
+	            { 0, s, c, 0 },
+	            { 0, 0, 0, 1 } }
+	return mkmat4(m)
+end
+
 function rotZ(phi)
 	local c = math.cos(phi)
 	local s = math.sin(phi)
@@ -125,44 +109,3 @@ function rotZ(phi)
 	return mkmat4(m)
 end
 
---[[
-function draw()
-	fnl_draw()
-	return 0
-	local io = imguiIO()
-	local aspect = io.DisplaySize.x/io.DisplaySize.y
-	dt = io.DeltaTime
-	time = time + dt
-
-	local phi = time*1.5
-	local ld = vec3(math.cos(phi), math.sin(phi), -1):normalized()
-	light.direction = ld
-	xtcSetLight(0, light)
-
-	cam.aspect = aspect
-	cam.fov = 81.3
-	cam:process()
-	xtcSetProjectionMatrix(cam:getProjMat())
-	xtcSetViewMatrix(cam:getViewMat())
-	xtcSetWorldMatrix(rotZ(0.2*phi))
-
-	xtcEnable(XTC_DEPTH_TEST)
-	drawAxes()
-
-	xtcSetShader(xtcGetDefaultShader())
-	xtcSetTexture(0, nil)
-	xtcSetMaterial(material)
-	xtcBegin(XTC_LINELIST)
-		xtcColor(255, 255, 255, 255)
-		xtcVertex(0, 0, 0)
-		xtcVertex(-ld.x*3, -ld.y*3, -ld.z*3)
-	xtcEnd()
-
-	xtcEnable(XTC_BLEND)
-	xtcBlendFuncSrcDst(XTC_BLEND_SRCALPHA, XTC_BLEND_INVSRCALPHA)
-	mdl:draw()
---	print("dt", io.DeltaTime)
---	print("fps", io.Framerate)
---	print("mouse", io.MousePos.x, io.MousePos.y)
-end
---]]

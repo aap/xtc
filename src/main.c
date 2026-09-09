@@ -5,6 +5,7 @@
 #include "scenes.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 #include <math.h>
 
@@ -65,8 +66,16 @@ updateCam(void)
 int curScene;
 
 int
-main()
+main(int argc, char *argv[])
 {
+	// boot into a named scene: pcsx2run.sh -s <scene>, or dsedb run elf <scene>.
+	// any argv entry may hold it: pcsx2's -gameargs replaces the whole
+	// vector (the scene arrives as argv[0]), dsedb appends after the path
+	for(int i = 0; i < argc; i++)
+		for(int j = 0; j < numScenes; j++)
+			if(strcmp(scenes[j].name, argv[i]) == 0)
+				curScene = j;
+
 	sceSifInitRpc(0);
 	joyInit();
 
@@ -126,7 +135,7 @@ main()
 		xtcDisable(XTC_FOG);
 		xtcDisable(XTC_TEXTURE);
 		xtcDisable(XTC_CLIPPING);
-		xtcBindTexture(nil);
+		xtcSetTexture(nil);
 		xtcTexFilter(XTC_LINEAR, XTC_LINEAR);
 		xtcTexFunc(XTC_RGB, XTC_MODULATE);
 

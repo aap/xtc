@@ -1,11 +1,15 @@
 #include "xtc.h"
 #include "m.h"
 #include "joy.h"
+#include "fio.h"
 #include "scenes.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 #include <libgraph.h>
+#include <sifdev.h>
 
 /*
  * Textures
@@ -29,18 +33,47 @@ uint8 tex4[] = {
 
 #define SIZED(array) array, sizeof(array)
 
-xtcRaster *raster32;
-xtcRaster *raster24;
-xtcRaster *raster8;
-xtcRaster *raster4;
+xtcTexture *raster32;
+xtcTexture *raster24;
+xtcTexture *raster8;
+xtcTexture *raster4;
+
+/* the file scene's texture, loaded over hostfs at init */
+static xtcTexture *fileRaster;
+
+/* the skeleton's orbit camera; the town scene file may preset it */
+extern float camDist, camTheta, camPhi;
+
+static void
+loadFileTexture(void)
+{
+	int fd, size, n;
+	uint8 *data;
+
+	fd = fioOpen("host:./test.png", SCE_RDONLY);
+	if(fd < 0) {
+		printf("fio: can't open host:./test.png -> %d\n", fd);
+		return;
+	}
+	size = fioLseek(fd, 0, SCE_SEEK_END);
+	fioLseek(fd, 0, SCE_SEEK_SET);
+	data = (uint8*)mdmaMalloc(size);
+	n = fioRead(fd, data, size);
+	fioClose(fd);
+	printf("fio: read %d/%d bytes of host:./test.png\n", n, size);
+	if(n == size)
+		fileRaster = xtcTextureReadPNG(data, size);
+}
 
 void
 scenesInit(void)
 {
-	raster32 = xtcReadPNG(SIZED(tex32));
-	raster24 = xtcReadPNG(SIZED(tex24));
-	raster8  = xtcReadPNG(SIZED(tex8));
-	raster4  = xtcReadPNG(SIZED(tex4));
+	raster32 = xtcTextureReadPNG(SIZED(tex32));
+	raster24 = xtcTextureReadPNG(SIZED(tex24));
+	raster8  = xtcTextureReadPNG(SIZED(tex8));
+	raster4  = xtcTextureReadPNG(SIZED(tex4));
+
+	loadFileTexture();
 }
 
 /*
@@ -370,6 +403,86 @@ drawSphere(void)
 	xtcEndList();
 }
 
+/*
+ * PrimList files.  The chain xtcpBuildList records is position-
+ * independent -- cnt tags with the data inline and a ret at the end,
+ * no addresses anywhere -- so a file is a small header plus the raw
+ * chain bytes.  This is the seed of the offline format: what the cross
+ * button saves here is exactly what a PC tool would generate.
+ */
+
+#define XPL_IDENT 0x304C5058	/* "XPL0" */
+
+STRUCT(PrimListHeader) {
+	uint32 ident;
+	uint32 pipe;		/* index into plPipes */
+	uint32 primtype;
+	uint32 size;		/* chain bytes following */
+};
+
+static xtcPipeline **plPipes[] = { &twodPipeline, &nolightPipeline, &defaultPipeline };
+
+static void
+savePrimList(xtcPrimList *pl, const char *path)
+{
+	PrimListHeader h;
+	int fd, n;
+	uint32 i;
+
+	h.ident = XPL_IDENT;
+	h.pipe = nelem(plPipes);
+	for(i = 0; i < nelem(plPipes); i++)
+		if(pl->pipe == *plPipes[i])
+			h.pipe = i;
+	if(h.pipe == nelem(plPipes)) {
+		printf("xpl: unknown pipeline, not saving\n");
+		return;
+	}
+	h.primtype = pl->primtype;
+	h.size = pl->size;
+
+	fd = fioOpen(path, SCE_WRONLY|SCE_CREAT|SCE_TRUNC);
+	if(fd < 0) {
+		printf("xpl: can't write %s -> %d\n", path, fd);
+		return;
+	}
+	n = fioWrite(fd, &h, sizeof(h));
+	n += fioWrite(fd, pl->list, pl->size);
+	fioClose(fd);
+	printf("xpl: wrote %d/%d bytes to %s\n", n, (int)(sizeof(h)+pl->size), path);
+}
+
+static xtcPrimList*
+loadPrimList(const char *path)
+{
+	PrimListHeader h;
+	xtcPrimList *pl;
+	int fd, n;
+
+	fd = fioOpen(path, SCE_RDONLY);
+	if(fd < 0) {
+		printf("xpl: can't open %s -> %d\n", path, fd);
+		return nil;
+	}
+	n = fioRead(fd, &h, sizeof(h));
+	if(n != sizeof(h) || h.ident != XPL_IDENT || h.pipe >= nelem(plPipes)) {
+		printf("xpl: %s is not a primlist file\n", path);
+		fioClose(fd);
+		return nil;
+	}
+	pl = xtcCreatePrimList();
+	pl->pipe = *plPipes[h.pipe];
+	pl->primtype = (xtcPrimType)h.primtype;
+	pl->size = h.size;
+	pl->list = mdmaMalloc(h.size);
+	n = fioRead(fd, pl->list, h.size);
+	fioClose(fd);
+	printf("xpl: read %d/%d chain bytes from %s\n", n, h.size, path);
+	if(n != (int)h.size)
+		return nil;
+	return pl;
+}
+
 static void
 scenePrimList(void)
 {
@@ -377,6 +490,224 @@ scenePrimList(void)
 	drawAxes();
 	rotateWorld();
 	drawSphere();
+
+	/* record the sphere to a file for the plfile scene */
+	if(joy.press & JOY_CROSS)
+		savePrimList(sphere, "host:./sphere.xpl");
+}
+
+/*
+ * Scene: plfile -- prim lists back from files, possibly made offline
+ * (tools/xpl.py).  assets.txt next to the ELF names them, one path per
+ * line; without it the scene falls back to sphere.xpl, the file the
+ * primlist scene's cross button records.  Dpad left/right cycles,
+ * cross drops the cache and loads the current one again.
+ */
+
+#define MAXASSETS 64
+
+static char assetName[MAXASSETS][64];
+static xtcPrimList *assetPl[MAXASSETS];
+static int numAssets;
+static int curAsset;
+static int assetsInited;
+
+static void
+loadAssetList(void)
+{
+	char buf[2048], *p, *e;
+	int fd, n, len;
+
+	numAssets = 0;
+	fd = fioOpen("host:./assets.txt", SCE_RDONLY);
+	if(fd < 0) {
+		strcpy(assetName[numAssets++], "sphere.xpl");
+		return;
+	}
+	n = fioRead(fd, buf, sizeof(buf)-1);
+	fioClose(fd);
+	if(n < 0) n = 0;
+	buf[n] = 0;
+	for(p = buf; *p && numAssets < MAXASSETS; p = e) {
+		e = p;
+		while(*e && *e != '\n') e++;
+		len = e-p;
+		if(*e) e++;
+		if(len > 0 && len < (int)sizeof(assetName[0]) && *p != '#') {
+			memcpy(assetName[numAssets], p, len);
+			assetName[numAssets][len] = 0;
+			numAssets++;
+		}
+	}
+	printf("xpl: %d assets listed\n", numAssets);
+}
+
+static void
+scenePlFile(void)
+{
+	char path[80];
+	int load = 0;
+
+	if(!assetsInited) {
+		assetsInited = 1;
+		loadAssetList();
+		load = 1;
+	}
+	if(joy.press & JOY_RIGHT) { curAsset = (curAsset+1) % numAssets; load = 1; }
+	if(joy.press & JOY_LEFT)  { curAsset = (curAsset+numAssets-1) % numAssets; load = 1; }
+	if(joy.press & JOY_CROSS) { assetPl[curAsset] = nil; load = 1; }
+	if(load && numAssets) {
+		printf("asset %d/%d: %s\n", curAsset+1, numAssets, assetName[curAsset]);
+		if(assetPl[curAsset] == nil) {
+			strcpy(path, "host:./");
+			strcat(path, assetName[curAsset]);
+			assetPl[curAsset] = loadPrimList(path);
+		}
+	}
+
+	xtcEnable(XTC_CLIPPING);
+	drawAxes();
+	rotateWorld();
+	if(numAssets && assetPl[curAsset])
+		xtcPrimListDraw(assetPl[curAsset]);
+}
+
+/*
+ * Scene: town -- prim list instances placed by a textual scene
+ * description, host:./town.scene, written by a separate layout program
+ * (tools/townplan.py).  This little format is the seed of the
+ * serialized scene structure:
+ *
+ *   # comment
+ *   cam <dist>                                  camera distance hint
+ *   inst <file> <x> <y> <z> <rotz deg> <scale>
+ *
+ * Cross reloads the file for layout iteration; loaded prim lists stay
+ * cached (a reload leaks the instance list's assets only if their
+ * files changed names -- fine for a test scene).
+ */
+
+#define MAXTOWNASSETS 32
+#define MAXINSTS 256
+
+STRUCT(TownInst) { int asset; float x, y, z, rotz, scale; };
+
+static char townName[MAXTOWNASSETS][64];
+static xtcPrimList *townPl[MAXTOWNASSETS];
+static int numTownAssets;
+static TownInst townInsts[MAXINSTS];
+static int numInsts;
+static int townLoaded;
+
+static int
+townAsset(const char *name)
+{
+	char path[80];
+	int i;
+
+	for(i = 0; i < numTownAssets; i++)
+		if(strcmp(townName[i], name) == 0)
+			return i;
+	if(numTownAssets >= MAXTOWNASSETS || strlen(name) >= sizeof(townName[0]))
+		return -1;
+	i = numTownAssets++;
+	strcpy(townName[i], name);
+	strcpy(path, "host:./");
+	strcat(path, name);
+	townPl[i] = loadPrimList(path);
+	return i;
+}
+
+static char*
+townTok(char **pp, char *out, int n)
+{
+	char *p = *pp;
+	int i = 0;
+
+	while(*p == ' ' || *p == '\t') p++;
+	while(*p && *p != ' ' && *p != '\t' && i < n-1) out[i++] = *p++;
+	out[i] = 0;
+	*pp = p;
+	return i ? out : nil;
+}
+
+static void
+loadTown(void)
+{
+	static char buf[16384];
+	char name[64], cmd[8];
+	char *p, *e, *q;
+	int fd, n;
+
+	numInsts = 0;
+	fd = fioOpen("host:./town.scene", SCE_RDONLY);
+	if(fd < 0) {
+		printf("town: can't open town.scene -> %d\n", fd);
+		return;
+	}
+	n = fioRead(fd, buf, sizeof(buf)-1);
+	fioClose(fd);
+	if(n < 0) n = 0;
+	buf[n] = 0;
+
+	for(p = buf; *p; p = e) {
+		e = p;
+		while(*e && *e != '\n') e++;
+		if(*e) *e++ = 0;
+
+		q = p;
+		if(townTok(&q, cmd, sizeof(cmd)) == nil || cmd[0] == '#')
+			continue;
+		if(strcmp(cmd, "cam") == 0) {
+			camDist = strtod(q, &q);
+			if(*q) camTheta = strtod(q, &q);
+			if(*q) camPhi = strtod(q, &q);
+		} else if(strcmp(cmd, "inst") == 0 && numInsts < MAXINSTS) {
+			TownInst *in = &townInsts[numInsts];
+			if(townTok(&q, name, sizeof(name)) == nil)
+				continue;
+			in->asset = townAsset(name);
+			in->x = strtod(q, &q);
+			in->y = strtod(q, &q);
+			in->z = strtod(q, &q);
+			in->rotz = strtod(q, &q) * (PI/180.0f);
+			in->scale = strtod(q, &q);
+			if(in->scale == 0.0f) in->scale = 1.0f;
+			if(in->asset >= 0)
+				numInsts++;
+		}
+	}
+	printf("town: %d instances of %d assets\n", numInsts, numTownAssets);
+}
+
+static void
+sceneTown(void)
+{
+	int i;
+
+	if(joy.press & JOY_CROSS)
+		townLoaded = 0;
+	if(!townLoaded) {
+		townLoaded = 1;
+		loadTown();
+	}
+
+	xtcEnable(XTC_CLIPPING);
+	for(i = 0; i < numInsts; i++) {
+		TownInst *in = &townInsts[i];
+		xtcPrimList *pl = townPl[in->asset];
+		if(pl == nil)
+			continue;
+		float c = cosf(in->rotz), s = sinf(in->rotz), k = in->scale;
+		float world[16] = {
+			 k*c, k*s, 0.0f, 0.0f,
+			-k*s, k*c, 0.0f, 0.0f,
+			0.0f, 0.0f,    k, 0.0f,
+			in->x, in->y, in->z, 1.0f
+		};
+		xtcSetWorldMatrix(world);
+		xtcPrimListDraw(pl);
+	}
 }
 
 /*
@@ -384,9 +715,9 @@ scenePrimList(void)
  */
 
 static void
-texQuad(xtcRaster *r, float x, float z)
+texQuad(xtcTexture *r, float x, float z)
 {
-	xtcBindTexture(r);
+	xtcSetTexture(r);
 	xtcBegin(XTC_TRISTRIP);
 		xtcColor(255, 255, 255, 255);
 		xtcTexCoord(0.0f, 1.0f, 1.0f);
@@ -529,20 +860,22 @@ drawPatch(float (*cvs)[3])
 	xtcEnd();
 }
 
+/* y-up OBJ data (teapot.inc, monkey.inc) into our z-up world, scaled by s.
+ * colors may be nil, then the vertices are black (unlit for RW) */
 void
-drawObj(float (*verts)[3], float (*tex)[2], float (*normals)[3], int (*faces)[3][3], int nfaces)
+drawObj(float (*verts)[3], float (*tex)[2], float (*normals)[3], uint8 (*colors)[4],
+	int (*faces)[3][3], int nfaces, float s)
 {
-	float s = 0.1f;
-	xtcColor(128, 128, 128, 255);
+	xtcColor(0, 0, 0, 255);
 
 	xtcBegin(XTC_TRILIST);
 		for(int i = 0; i < nfaces; i++) {
-			xtcColor(0, 0, 0, 255);
-
 			for(int v = 0; v < 3; v++) {
 				int vx = faces[i][v][0]-1;
 				int vt = faces[i][v][1]-1;
 				int vn = faces[i][v][2]-1;
+				if(colors)
+					xtcColor(colors[vx][0], colors[vx][1], colors[vx][2], colors[vx][3]);
 				xtcNormal(normals[vn][0], -normals[vn][2], normals[vn][1]);
 				xtcVertex(s*verts[vx][0], -s*verts[vx][2], s*verts[vx][1]);
 			}
@@ -555,7 +888,7 @@ drawTeapot(void)
 {
 	xtcSetPipeline(defaultPipeline);
 
-	drawObj(teapot_verts, teapot_tex, teapot_normals, teapot_faces, nelem(teapot_faces));
+	drawObj(teapot_verts, teapot_tex, teapot_normals, nil, teapot_faces, nelem(teapot_faces), 0.1f);
 }
 
 static void
@@ -597,6 +930,251 @@ sceneLit(void)
 	drawAxes();
 	setLights();
 	drawTeapot();
+}
+
+/*
+ * Scene: lights -- RW lighting on the monkey: global ambient and up to
+ * 8 directional lights, the same set as src_gl/lights.fnl so the two
+ * backends can be compared.  The monkey is recorded into a prim list on
+ * first use; the lights stay in world space while it turns.
+ *
+ *   dpad left/right  select a light (its stub blinks white)
+ *   cross            toggle the selected light
+ *   dpad up/down     light intensity
+ *   triangle         toggle the ambient
+ *   square           toggle the spin
+ *   circle           toggle the vertex colours (monkey.inc carries a
+ *                    position gradient, see tools/obj2inc.py)
+ */
+
+#include "monkey.inc"
+
+#define NLIGHTS 8
+
+static float lightColors[NLIGHTS][3] = {
+	{ 1.0f, 1.0f, 1.0f }, { 1.0f, 0.2f, 0.2f }, { 0.2f, 1.0f, 0.2f }, { 0.3f, 0.4f, 1.0f },
+	{ 1.0f, 1.0f, 0.2f }, { 1.0f, 0.2f, 1.0f }, { 0.2f, 1.0f, 1.0f }, { 1.0f, 0.6f, 0.2f }
+};
+static int lightOn[NLIGHTS] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+static int curLight;
+static int ambientOn = 1;
+static int monkeySpin = 1;
+static float lightIntensity = 0.6f;
+static float monkeyAngle;
+static int useVertexColors = 1;
+static xtcPrimList *monkey, *monkeyPlain;
+
+/* where light i shines from: round the circle, alternately above and below */
+static void
+lightFrom(int i, float out[3])
+{
+	float a = TAU*i/NLIGHTS;
+	float from[3] = { cosf(a), sinf(a), (i & 1) ? -0.5f : 0.8f };
+	normalize(out, from);
+}
+
+static void
+lightsControls(void)
+{
+	if(joy.press & JOY_RIGHT) curLight = (curLight+1) % NLIGHTS;
+	if(joy.press & JOY_LEFT) curLight = (curLight+NLIGHTS-1) % NLIGHTS;
+	if(joy.press & JOY_CROSS) lightOn[curLight] = !lightOn[curLight];
+	if(joy.press & JOY_UP) lightIntensity += 0.1f;
+	if(joy.press & JOY_DOWN) lightIntensity -= 0.1f;
+	if(lightIntensity < 0.0f) lightIntensity = 0.0f;
+	if(lightIntensity > 1.0f) lightIntensity = 1.0f;
+	if(joy.press & JOY_TRIANGLE) ambientOn = !ambientOn;
+	if(joy.press & JOY_SQUARE) monkeySpin = !monkeySpin;
+	if(joy.press & JOY_CIRCLE) useVertexColors = !useVertexColors;
+	if(joy.press & (JOY_RIGHT|JOY_LEFT|JOY_CROSS|JOY_UP|JOY_DOWN|JOY_TRIANGLE|JOY_CIRCLE))
+		printf("light %d: %s, intensity %.1f, ambient %s, vertex colors %s\n", curLight,
+			lightOn[curLight] ? "on" : "off", lightIntensity,
+			ambientOn ? "on" : "off", useVertexColors ? "on" : "off");
+}
+
+static void
+setDemoLights(void)
+{
+	xtcLight l;
+	float from[3];
+	int i;
+
+	if(ambientOn)
+		xtcSetAmbient(30, 30, 30);
+//		xtcSetAmbient(150, 30, 30);
+	else
+		xtcSetAmbient(0, 0, 0);
+
+	memset(&l, 0, sizeof(l));
+	l.type = XTC_LIGHT_DIRECT;
+	l.color.a = 255.0f;
+	for(i = 0; i < NLIGHTS; i++) {
+		l.enabled = lightOn[i];
+		l.color.r = 255.0f*lightIntensity*lightColors[i][0];
+		l.color.g = 255.0f*lightIntensity*lightColors[i][1];
+		l.color.b = 255.0f*lightIntensity*lightColors[i][2];
+		lightFrom(i, from);
+		l.direction.x = -from[0];
+		l.direction.y = -from[1];
+		l.direction.z = -from[2];
+		xtcSetLight(i, &l);
+	}
+}
+
+/* a stub pointing at each light in its colour, dim when the light is
+ * off, the selected one blinking white */
+static void
+drawLightStubs(void)
+{
+	static int frame;
+	float from[3];
+	int i, r, g, b;
+
+	frame++;
+	xtcSetPipeline(nolightPipeline);
+	xtcBegin(XTC_LINELIST);
+	for(i = 0; i < NLIGHTS; i++) {
+		r = 255*lightColors[i][0];
+		g = 255*lightColors[i][1];
+		b = 255*lightColors[i][2];
+		if(!lightOn[i]) { r /= 4; g /= 4; b /= 4; }
+		if(i == curLight && (frame & 16)) r = g = b = 255;
+		lightFrom(i, from);
+		xtcColor(r, g, b, 255);
+		xtcVertex(1.3f*from[0], 1.3f*from[1], 1.3f*from[2]);
+		xtcVertex(1.9f*from[0], 1.9f*from[1], 1.9f*from[2]);
+	}
+	xtcEnd();
+}
+
+static void
+drawMonkey(void)
+{
+	xtcRwMaterial m;
+
+	/* two recordings, with and without the vertex colours */
+	if(monkey == nil) {
+		monkey = xtcCreatePrimList();
+		xtcStartList(monkey);
+//		xtcSetPipeline(defaultPipeline);
+		xtcSetPipeline(stdPipeline);	// no explicit material for this!
+		drawObj(monkey_verts, monkey_tex, monkey_normals, monkey_colors,
+			monkey_faces, nelem(monkey_faces), 0.75f);
+		xtcEndList();
+
+		monkeyPlain = xtcCreatePrimList();
+		xtcStartList(monkeyPlain);
+		xtcSetPipeline(stdPipeline);
+		drawObj(monkey_verts, monkey_tex, monkey_normals, nil,
+			monkey_faces, nelem(monkey_faces), 0.75f);
+		xtcEndList();
+	}
+
+	/* plain white RW material: the lights are the whole look */
+	m.color.r = m.color.g = m.color.b = m.color.a = 1.0f;
+	m.ambient = 1.0f;
+	m.diffuse = 1.0f;
+	m.specular = 0.0f;
+	m.shininess = 0.0f;
+	xtcSetRwMaterial(&m);
+	xtcPrimListDraw(useVertexColors ? monkey : monkeyPlain);
+}
+
+static void
+sceneLights(void)
+{
+	float world[16], c, s;
+
+	lightsControls();
+	xtcEnable(XTC_CLIPPING);
+	drawAxes();
+	drawLightStubs();
+	setDemoLights();
+
+	/* the monkey turns about z and is tipped a little, the lights stay */
+	if(monkeySpin)
+		monkeyAngle += 0.4f/60.0f;
+	c = cosf(monkeyAngle);
+	s = sinf(monkeyAngle);
+	float rz[16] = { c, s, 0, 0,  -s, c, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 };
+	c = cosf(0.4f);
+	s = sinf(0.4f);
+	float rx[16] = { 1, 0, 0, 0,  0, c, s, 0,  0, -s, c, 0,  0, 0, 0, 1 };
+	matmul(world, rz, rx);
+	xtcSetWorldMatrix(world);
+	drawMonkey();
+}
+
+/*
+ * Scene: dsm -- prim lists assembled offline.  src/data/monkey_std.dsm
+ * (inline batches, the shape the runtime records) on the left and
+ * monkey_std_ref.dsm (a DMAref chain into contiguous attribute arrays)
+ * on the right, both written by tools/primdsm.py from monkey_col.obj,
+ * assembled by ee-dvp-as and linked into the ELF.  Same lights and
+ * controls as the lights scene.
+ */
+
+extern uint128 monkey_std[];
+extern uint128 monkey_std_ref[];
+
+static void
+sceneDsm(void)
+{
+	static xtcRGBA black = { 0.0f, 0.0f, 0.0f, 1.0f };
+	static xtcRGBA white = { 1.0f, 1.0f, 1.0f, 1.0f };
+	xtcStdMaterial mat = {
+		{ 1.0f, 1.0f, 1.0f, 1.0f },	// emissive
+		{ 1.0f, 1.0f, 1.0f, 1.0f },	// ambient
+		{ 1.0f, 1.0f, 1.0f, 1.0f },	// diffuse
+		{ 0.0f, 0.0f, 0.0f, 10.0f },	// specular
+	};
+
+	static xtcPrimList inl, ref;
+	float rz[16], rx[16], world[16], c, s;
+
+	if(inl.list == nil) {
+		inl.pipe = stdPipeline;
+		inl.primtype = XTC_TRILIST;
+		inl.list = monkey_std;
+		ref.pipe = stdPipeline;
+		ref.primtype = XTC_TRILIST;
+		ref.list = monkey_std_ref;
+	}
+
+	lightsControls();
+	xtcEnable(XTC_CLIPPING);
+	drawAxes();
+	drawLightStubs();
+	setDemoLights();
+
+xtcSetColorMaterial(0);
+//mat.ambient = black;
+mat.diffuse = black;
+xtcSetStdMaterial(&mat);
+//xtcSetColorMaterial(XTC_AMBIENT);
+xtcSetColorMaterial(XTC_EMISSIVE);
+xtcSetColorMaterial(XTC_AMBIENT | XTC_DIFFUSE);
+//xtcSetColorMaterial(XTC_DIFFUSE);
+
+	if(monkeySpin)
+		monkeyAngle += 0.4f/60.0f;
+	c = cosf(monkeyAngle);
+	s = sinf(monkeyAngle);
+	float rzv[16] = { c, s, 0, 0,  -s, c, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 };
+	c = cosf(0.4f);
+	s = sinf(0.4f);
+	float rxv[16] = { 1, 0, 0, 0,  0, c, s, 0,  0, -s, c, 0,  0, 0, 0, 1 };
+	memcpy(rz, rzv, sizeof(rz));
+	memcpy(rx, rxv, sizeof(rx));
+	matmul(world, rz, rx);
+
+	world[12] = -1.3f;
+	xtcSetWorldMatrix(world);
+	xtcPrimListDraw(&inl);
+
+	world[12] = 1.3f;
+	xtcSetWorldMatrix(world);
+	xtcPrimListDraw(&ref);
 }
 
 /*
@@ -665,7 +1243,7 @@ sceneLitTex(void)
 	drawAxes();
 	setLights();
 	xtcEnable(XTC_TEXTURE);
-	xtcBindTexture(raster32);
+	xtcSetTexture(raster32);
 	rotateWorld();
 	drawLitSphere();
 }
@@ -708,7 +1286,7 @@ sceneIm2d(void)
 
 	xtcDisable(XTC_DEPTH_TEST);
 	xtcEnable(XTC_TEXTURE);
-	xtcBindTexture(raster8);
+	xtcSetTexture(raster8);
 	xtcColorScaleTex(1.0f, 1.0f, 1.0f, scl);
 	drawIm2D();
 	xtcColorScaleTex(scl, scl, scl, scl);
@@ -750,7 +1328,7 @@ sceneBlend(void)
 	xtcBlendFuncSrcDst(XTC_BLEND_SRCALPHA, XTC_BLEND_INVSRCALPHA);
 	xtcEnable(XTC_TEXTURE);
 	xtcTexFunc(XTC_RGBA, XTC_MODULATE);
-	xtcBindTexture(raster32);
+	xtcSetTexture(raster32);
 	xtcColor(255, 255, 255, 255);
 	texRect2d(0.7f, 0.0f, 1.1f, 1.1f);
 }
@@ -818,6 +1396,32 @@ static void
 sceneDirect(void)
 {
 	drawThing();
+}
+
+/*
+ * Scene: file — a texture loaded from the host filesystem through
+ * fio.c; a red quad means the file didn't make it.
+ */
+
+static void
+sceneFile(void)
+{
+	xtcEnable(XTC_CLIPPING);
+	drawAxes();
+	xtcSetPipeline(nolightPipeline);
+
+	if(fileRaster) {
+		xtcEnable(XTC_TEXTURE);
+		texQuad(fileRaster, 0.0f, 1.0f);
+	} else {
+		xtcBegin(XTC_TRISTRIP);
+			xtcColor(255, 0, 0, 255);
+			xtcVertex(-0.9f, 0.0f, 0.1f);
+			xtcVertex( 0.9f, 0.0f, 0.1f);
+			xtcVertex(-0.9f, 0.0f, 1.9f);
+			xtcVertex( 0.9f, 0.0f, 1.9f);
+		xtcEnd();
+	}
 }
 
 /*
@@ -908,13 +1512,18 @@ scenePad(void)
 Scene scenes[] = {
 	{ "prims", scenePrims },
 	{ "primlist", scenePrimList },
+	{ "plfile", scenePlFile },
+	{ "town", sceneTown },
 	{ "texture", sceneTexture },
 	{ "lit", sceneLit },
+	{ "lights", sceneLights },
+	{ "dsm", sceneDsm },
 	{ "littex", sceneLitTex },
 	{ "im2d", sceneIm2d },
 	{ "blend", sceneBlend },
 	{ "fog", sceneFog },
 	{ "direct", sceneDirect },
+	{ "file", sceneFile },
 	{ "pad", scenePad },
 };
 int numScenes = nelem(scenes);

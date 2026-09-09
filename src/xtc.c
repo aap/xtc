@@ -388,6 +388,21 @@ void xtcSetLight(int n, xtcLight *light)
 	xtcState.lights[n] = *light;
 }
 
+void xtcSetRwMaterial(xtcRwMaterial *mat)
+{
+	xtcState.rwMaterial = *mat;
+}
+
+void xtcSetStdMaterial(xtcStdMaterial *mat)
+{
+	xtcState.stdMaterial = *mat;
+}
+
+void xtcSetColorMaterial(uint32 bits)
+{
+	xtcState.stdColSel = bits;
+}
+
 void
 xtcSetList(mdmaList *list)
 {
@@ -433,7 +448,7 @@ xtcInit(int width, int height, int depth)
 	xtcColorScale(1.0f, 1.0f, 1.0f, scl);
 	xtcColorScaleTex(scl, scl, scl, scl);
 
-	xtcMaterial *m = &xtcState.material;
+	xtcRwMaterial *m = &xtcState.rwMaterial;
 	m->color.r = 1.0f;
 	m->color.g = 1.0f;
 	m->color.b = 1.0f;
@@ -442,6 +457,15 @@ xtcInit(int width, int height, int depth)
 	m->diffuse = 1.0f;
 	m->specular = 1.0f;
 	m->shininess = 1.0f;
+
+	xtcRGBA black = { 0.0f, 0.0f, 0.0f, 0.0f };
+	xtcRGBA white = { 1.0f, 1.0f, 1.0f, 0.0f };
+	xtcStdMaterial *n = &xtcState.stdMaterial;
+	n->emissive = black;
+	n->ambient = white;
+	n->diffuse = white;
+	n->specular = white;
+	xtcState.stdColSel = 0;
 
 	xtcSetAmbient(51, 51, 51);
 

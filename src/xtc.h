@@ -123,14 +123,15 @@ void xtcgSetRegs(mdmaList *list);
 void xtcgFlushRegs(mdmaList *list);
 
 
-STRUCT(xtcrBuffer) {
+STRUCT(xtctBuffer) {
 	uint16 bp;	// block address, relative to raster base
 	uint16 bw;	// pixel width/64
 };
 
-// or maybe xtcTexture?
+// NB: used to be xtcRaster
+// xtct used to be xtcr
 // TODO: use smaller types
-STRUCT(xtcRaster) {
+STRUCT(xtcTexture) {
 	int32 width;
 	int32 height;
 	int32 depth;
@@ -141,8 +142,8 @@ STRUCT(xtcRaster) {
 
 	uint32 psm;
 	uint32 numPages;
-	xtcrBuffer clutBuf;
-	xtcrBuffer texBuf;
+	xtctBuffer clutBuf;
+	xtctBuffer texBuf;
 	uint32 maxlod;
 	uint32 hasAlpha;
 
@@ -151,10 +152,10 @@ STRUCT(xtcRaster) {
 	uint128 *pkts;
 };
 
-xtcRaster *xtcReadPNG(uint8 *data, uint32 len);
-void xtcrRasterBuildChains(xtcRaster *r);
-void xtcrUpload(xtcRaster *r);
-void xtcBindTexture(xtcRaster *r);
+void xtcSetTexture(xtcTexture *tex);
+xtcTexture *xtcTextureReadPNG(const uint8 *data, uint32 len);
+void xtctTexBuildChains(xtcTexture *tex);
+void xtctUpload(xtcTexture *tex);
 
 ENUM(xtcTCC) {
 	XTC_RGB,
@@ -319,6 +320,8 @@ extern xtcPipeline *twodPipeline;
 extern xtcPipeline *nolightPipeline;
 extern xtcPipeline *defaultPipeline;
 
+extern xtcPipeline *stdPipeline;
+
 void xtcSetPipeline(xtcPipeline *pipe);
 
 void xtcBegin(xtcPrimType prim);
@@ -346,15 +349,35 @@ STRUCT(xtcVec3) { float x, y, z; };
 STRUCT(xtcVec4) { float x, y, z, w; };
 STRUCT(xtcRGBA) { float r, g, b, a; };
 
-// TODO: this should probably be pipe-specific
-STRUCT(xtcMaterial) {
+STRUCT(xtcRwMaterial) {
 	xtcRGBA color;
 	float ambient;
 	float diffuse;
 	float specular;
 	float shininess;
 };
-void xtcSetMaterial(xtcMaterial *mat);
+
+STRUCT(xtcStdMaterial) {
+	// 0.0 - 1.0
+	xtcRGBA emissive;
+	xtcRGBA ambient;
+	xtcRGBA diffuse;
+	// unused for now
+	xtcRGBA specular;	// alpha as power somehow
+};
+
+// TODO: this is dumb
+void xtcSetRwMaterial(xtcRwMaterial *mat);
+void xtcSetStdMaterial(xtcStdMaterial *mat);
+
+ENUM(xtcColorBit) {
+	XTC_EMISSIVE = 1,
+	XTC_AMBIENT  = 2,
+	XTC_DIFFUSE  = 4,
+	XTC_SPECULAR = 8,
+};
+// for std material
+void xtcSetColorMaterial(uint32 bits);
 
 
 ENUM(xtcLightType) {
@@ -366,7 +389,7 @@ ENUM(xtcLightType) {
 STRUCT(xtcLight) {
 	int enabled;
 	xtcLightType type;
-	xtcRGBA color;
+	xtcRGBA color;		// 0-255
 //	xtcRGBA specColor;	// maybe later?
 	xtcVec3 direction;
 	xtcVec3 position;
@@ -499,7 +522,7 @@ struct xtcState
 	xtcPipeline *pipe;
 
 	int tme;
-	xtcRaster *tex;
+	xtcTexture *tex;
 	// these have only the stuff that's raster-independent
 	uint64 tex0;
 	uint64 tex1;
@@ -516,7 +539,9 @@ struct xtcState
 	float *pColorScale;
 	float *pColorScaleTex;
 
-	xtcMaterial material;
+	xtcRwMaterial rwMaterial;
+	xtcStdMaterial stdMaterial;
+	uint32 stdColSel;
 
 	xtcRGBA ambient;
 	xtcLight lights[8];

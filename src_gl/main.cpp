@@ -29,7 +29,7 @@ static void glfw_error_callback(int error, const char* description)
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
-int main(int, char**)
+int main(int argc, char **argv)
 {
 
 	//InitPreGL();
@@ -104,17 +104,16 @@ int main(int, char**)
 	//IM_ASSERT(font != NULL);
 
 	// Our state
-	bool show_another_window = false;
 	ImVec4 clear_color = ImVec4(161/255.0f, 161/255.0f, 161/255.0f, 1.0f);
 
 	InitGL((void*)glfwGetProcAddress);
-	InitApp();
+	InitApp(argc, argv);
 	InitScene();
 
 	glfwShowWindow(window);
 
 	// Main loop
-	while (!glfwWindowShouldClose(window))
+	while (!glfwWindowShouldClose(window) && !appShouldQuit)
 	{
 		// Poll and handle events (inputs, window resize, etc.)
 		// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
@@ -128,25 +127,12 @@ int main(int, char**)
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 
-		// 3. Show another simple window.
-		if (show_another_window)
-		{
-			ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-			ImGui::Text("Hello from another window!");
-			if (ImGui::Button("Close Me"))
-				show_another_window = false;
-			ImGui::End();
-		}
-
 		GUI();
 
 		// Rendering
 		ImGui::Render();
 		glfwGetFramebufferSize(window, &display_w, &display_h);
 		xtcViewport(0, 0, display_w, display_h);
-		extern float timeNow, timeStep;
-		timeNow = ImGui::GetTime();;
-		timeStep = io.DeltaTime;
 		xtcClearColor(clear_color.x*255, clear_color.y*255, clear_color.z*255, 255);
 		xtcClear(XTC_COLORBUF | XTC_DEPTHBUF);
 		RenderScene();

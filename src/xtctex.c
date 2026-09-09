@@ -78,10 +78,10 @@ makeCSM1(uint32 *clut)
 // TODO:
 // account for minimum size
 // check for power of 2?
-xtcRaster*
-xtcReadPNG(uint8 *data, uint32 len)
+xtcTexture*
+xtcTextureReadPNG(const uint8 *data, uint32 len)
 {
-	xtcRaster *r;
+	xtcTexture *tex;
 
 	LodePNGState state;
 	lodepng_state_init(&state);
@@ -95,38 +95,38 @@ xtcReadPNG(uint8 *data, uint32 len)
 		return nil;
 	}
 
-	r = (xtcRaster*)mdmaMalloc(sizeof(*r));
-	memset(r, 0, sizeof(*r));
-	r->width = w;
-	r->height = h;
+	tex = (xtcTexture*)mdmaMalloc(sizeof(*tex));
+	memset(tex, 0, sizeof(*tex));
+	tex->width = w;
+	tex->height = h;
 
 	switch(state.info_raw.colortype) {
 	case LCT_PALETTE:
-		r->depth = state.info_raw.palettesize <= 16 ? 4 : 8;
-		r->psm = r->depth == 4 ? SCE_GS_PSMT4 : SCE_GS_PSMT8;
-		r->clutSize = (1<<r->depth)*4;
-		r->clut = (uint8*)mdmaMalloc(r->clutSize);
-		copy32(r->clut, r->clutSize, state.info_raw.palette, r->clutSize, 1<<r->depth, 1);
-		r->pixelSize = w*h*r->depth/8;
-		r->pixels = (uint8*)mdmaMalloc(r->pixelSize);
+		tex->depth = state.info_raw.palettesize <= 16 ? 4 : 8;
+		tex->psm = tex->depth == 4 ? SCE_GS_PSMT4 : SCE_GS_PSMT8;
+		tex->clutSize = (1<<tex->depth)*4;
+		tex->clut = (uint8*)mdmaMalloc(tex->clutSize);
+		copy32(tex->clut, tex->clutSize, state.info_raw.palette, tex->clutSize, 1<<tex->depth, 1);
+		tex->pixelSize = w*h*tex->depth/8;
+		tex->pixels = (uint8*)mdmaMalloc(tex->pixelSize);
 		if(state.info_raw.bitdepth == 4)
-			copy4to4_swap(r->pixels, w/2, raw, w/2, w, h);
-		else if(r->depth == 4)
-			copy8to4(r->pixels, w/2, raw, w, w, h);
+			copy4to4_swap(tex->pixels, w/2, raw, w/2, w, h);
+		else if(tex->depth == 4)
+			copy8to4(tex->pixels, w/2, raw, w, w, h);
 		else {
-			makeCSM1((uint32*)r->clut);
-			memcpy(r->pixels, raw, w*h);
+			makeCSM1((uint32*)tex->clut);
+			memcpy(tex->pixels, raw, w*h);
 		}
 		break;
 	case LCT_RGB:
 		if(state.info_raw.bitdepth != 8)
 			goto def;
-		r->depth = 24;
-		r->psm = SCE_GS_PSMCT24;
-		r->pixelSize = w*h*3;
-		r->pixels = (uint8*)mdmaMalloc(r->pixelSize);
-		memcpy(r->pixels, raw, w*h*3);
-//		copy24to32(r->pixels, w*4, raw, w*3, w, h);
+		tex->depth = 24;
+		tex->psm = SCE_GS_PSMCT24;
+		tex->pixelSize = w*h*3;
+		tex->pixels = (uint8*)mdmaMalloc(tex->pixelSize);
+		memcpy(tex->pixels, raw, w*h*3);
+//		copy24to32(tex->pixels, w*4, raw, w*3, w, h);
 		break;
 	default:
 	def:
@@ -135,7 +135,7 @@ xtcReadPNG(uint8 *data, uint32 len)
 		lodepng_state_init(&state);
 		error = lodepng_decode(&raw, &w, &h, &state, data, len);
 		if(error){
-			mdmaFree(r);
+			mdmaFree(tex);
 			printf("lodepng error %s\n", lodepng_error_text(error));
 			return nil;
 		}
@@ -145,19 +145,19 @@ xtcReadPNG(uint8 *data, uint32 len)
 	case LCT_RGBA:
 		if(state.info_raw.bitdepth != 8)
 			goto def;
-		r->depth = 32;
-		r->psm = SCE_GS_PSMCT32;
-		r->pixelSize = w*h*4;
-		r->pixels = (uint8*)mdmaMalloc(r->pixelSize);
-		copy32(r->pixels, w*4, raw, w*4, w, h);
+		tex->depth = 32;
+		tex->psm = SCE_GS_PSMCT32;
+		tex->pixelSize = w*h*4;
+		tex->pixels = (uint8*)mdmaMalloc(tex->pixelSize);
+		copy32(tex->pixels, w*4, raw, w*4, w, h);
 		break;
 	}
 
 	lodepng_free(raw);
 
-	xtcrRasterBuildChains(r);
+	xtctTexBuildChains(tex);
 
-	return r;
+	return tex;
 }
 
 typedef struct PSMdesc PSMdesc;
@@ -205,7 +205,7 @@ logi(uint32 sz)
 }
 
 void
-xtcrRasterBuildChains(xtcRaster *r)
+xtctTexBuildChains(xtcTexture *tex)
 {
 	mdmaArena arena;
 	mdmaList l;
@@ -232,19 +232,19 @@ xtcrRasterBuildChains(xtcRaster *r)
 	 */
 
 	// TODO(mipmap)
-	r->maxlod = 0;
+	tex->maxlod = 0;
 
-	r->texBuf.bp = 0;
-	r->texBuf.bw = 1;
-	r->clutBuf.bp = 0;
-	r->clutBuf.bw = 1;
+	tex->texBuf.bp = 0;
+	tex->texBuf.bw = 1;
+	tex->clutBuf.bp = 0;
+	tex->clutBuf.bw = 1;
 
-	PSMdesc *p = &psmDescs[r->psm];
-	r->hasAlpha = p->hasAlpha;
-	uint32 npgW = (r->width+p->pageWidth-1)/p->pageWidth;
-	uint32 npgH = (r->height+p->pageHeight-1)/p->pageHeight;
-	r->numPages = npgW*npgH;
-	uint32 nblocks = r->numPages*BLK2PG;
+	PSMdesc *p = &psmDescs[tex->psm];
+	tex->hasAlpha = p->hasAlpha;
+	uint32 npgW = (tex->width+p->pageWidth-1)/p->pageWidth;
+	uint32 npgH = (tex->height+p->pageHeight-1)/p->pageHeight;
+	tex->numPages = npgW*npgH;
+	uint32 nblocks = tex->numPages*BLK2PG;
 
 	/*
 	 * If a texture is smaller than a page either in width or height
@@ -255,40 +255,40 @@ xtcrRasterBuildChains(xtcRaster *r)
 	 * TODO: alternatively we could put multiple palettes into one page.
 	 *	and have a special palette allocator.
 	 */
-	if(r->clut) {
-		if(r->width < p->pageWidth ||
-		   r->height < p->pageHeight) {
-			r->clutBuf.bp = nblocks-4;
+	if(tex->clut) {
+		if(tex->width < p->pageWidth ||
+		   tex->height < p->pageHeight) {
+			tex->clutBuf.bp = nblocks-4;
 		} else {
-			r->clutBuf.bp = nblocks;
-			r->numPages++;
-//			nblocks = r->numPages*BLK2PG;
+			tex->clutBuf.bp = nblocks;
+			tex->numPages++;
+//			nblocks = tex->numPages*BLK2PG;
 		}
 	}
 
-	r->texBuf.bp = 0;
-	r->texBuf.bw = npgW*p->pageWidth / 64;
+	tex->texBuf.bp = 0;
+	tex->texBuf.bw = npgW*p->pageWidth / 64;
 
-	uint32 tw = logi(r->width);
-	uint32 th = logi(r->height);
-	uint32 cld = r->clut ? 1 : 0;	// load always
-	r->tex0 = SCE_GS_SET_TEX0(r->texBuf.bp, r->texBuf.bw, r->psm,
+	uint32 tw = logi(tex->width);
+	uint32 th = logi(tex->height);
+	uint32 cld = tex->clut ? 1 : 0;	// load always
+	tex->tex0 = SCE_GS_SET_TEX0(tex->texBuf.bp, tex->texBuf.bw, tex->psm,
 		tw, th, 0, 0,
-		r->clutBuf.bp, SCE_GS_PSMCT32, 0, 0, cld);
+		tex->clutBuf.bp, SCE_GS_PSMCT32, 0, 0, cld);
 
 	// TODO(mipmap)
-	uint32 numPkts = r->clut ? 2 : 1;
+	uint32 numPkts = tex->clut ? 2 : 1;
 
-	r->pkts = (uint128*)mdmaMalloc(numPkts*8*16);
-	mdmaArenaInit(&arena, r->pkts, numPkts*8, 1, MDMA_MEM_CACHED);
+	tex->pkts = (uint128*)mdmaMalloc(numPkts*8*16);
+	mdmaArenaInit(&arena, tex->pkts, numPkts*8, 1, MDMA_MEM_CACHED);
 	mdmaListInit(&l, &arena);
 	uint32 w, h, sz;
 
 	// TODO(mipmap): loop
 	{
-		w = r->width;
-		h = r->height;
-		sz = (r->pixelSize+15) / 16;
+		w = tex->width;
+		h = tex->height;
+		sz = (tex->pixelSize+15) / 16;
 
 		mdmaCnt(&l, 5);
 			mdmaBeginDirect(&l, 5, 0);
@@ -304,15 +304,15 @@ xtcrRasterBuildChains(xtcRaster *r)
 			mdmaEndDirect(&l);
 		mdmaCloseTag(&l);
 
-		mdmaRef(&l, r->pixels, sz);
+		mdmaRef(&l, tex->pixels, sz);
 			mdmaVifDirect(&l, sz, 0);
 
 		mdmaRet(&l, 0);
 		mdmaCloseTag(&l);
 	}
 
-	if(r->clut) {
-		if(r->depth == 4) {
+	if(tex->clut) {
+		if(tex->depth == 4) {
 			// 1 column
 			w = 8;
 			h = 2;
@@ -321,7 +321,7 @@ xtcrRasterBuildChains(xtcRaster *r)
 			w = 16;
 			h = 16;
 		}
-		sz = r->clutSize / 16;
+		sz = tex->clutSize / 16;
 
 		mdmaCnt(&l, 5);
 			mdmaBeginDirect(&l, 5, 0);
@@ -334,7 +334,7 @@ xtcrRasterBuildChains(xtcRaster *r)
 			mdmaEndDirect(&l);
 		mdmaCloseTag(&l);
 
-		mdmaRef(&l, r->clut, sz);
+		mdmaRef(&l, tex->clut, sz);
 			mdmaVifDirect(&l, sz, 0);
 
 		mdmaRet(&l, 0);
@@ -343,7 +343,7 @@ xtcrRasterBuildChains(xtcRaster *r)
 }
 
 void
-xtcrUpload(xtcRaster *r)
+xtctUpload(xtcTexture *tex)
 {
 	mdmaList *l = xtcState.list;
 
@@ -357,26 +357,26 @@ xtcrUpload(xtcRaster *r)
 	pingpong = !pingpong;
 
 
-	r->base = base;
+	tex->base = base;
 
-	uint128 *pkt = r->pkts;
+	uint128 *pkt = tex->pkts;
 
 	mdmaCall(l, pkt, 2);
 		mdmaBeginDirect(l, 2, 0);
 			mdmaBeginGifTag(l, 1, 0, 0,0, GIF_PACKED, 1, GIF_AD);
 			mdmaAddAD(l, SCE_GS_BITBLTBUF, SCE_GS_SET_BITBLTBUF(0,0,0,
-				r->base+r->texBuf.bp, r->texBuf.bw, r->psm));
+				tex->base+tex->texBuf.bp, tex->texBuf.bw, tex->psm));
 			mdmaEndGifTag(l);
 		mdmaEndDirect(l);
 	mdmaCloseTag(l);
 	pkt += 8;
 
-	if(r->clut) {
+	if(tex->clut) {
 		mdmaCall(l, pkt, 2);
 			mdmaBeginDirect(l, 2, 0);
 				mdmaBeginGifTag(l, 1, 0, 0,0, GIF_PACKED, 1, GIF_AD);
 				mdmaAddAD(l, SCE_GS_BITBLTBUF, SCE_GS_SET_BITBLTBUF(0,0,0,
-					r->base+r->clutBuf.bp, r->clutBuf.bw, SCE_GS_PSMCT32));
+					tex->base+tex->clutBuf.bp, tex->clutBuf.bw, SCE_GS_PSMCT32));
 				mdmaEndGifTag(l);
 			mdmaEndDirect(l);
 		mdmaCloseTag(l);
@@ -392,12 +392,12 @@ xtcrUpload(xtcRaster *r)
 }
 
 void
-xtcBindTexture(xtcRaster *r)
+xtcSetTexture(xtcTexture *tex)
 {
-	if(xtcState.tex != r) {
-		xtcState.tex = r;
-		if(r)
-			xtcrUpload(r);
+	if(xtcState.tex != tex) {
+		xtcState.tex = tex;
+		if(tex)
+			xtctUpload(tex);
 	}
 }
 

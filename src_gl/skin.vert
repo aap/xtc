@@ -3,7 +3,7 @@
 layout(location = 0) in vec3 in_pos;
 layout(location = 1) in vec4 in_color;
 layout(location = 2) in vec3 in_normal;
-layout(location = 3) in vec2 in_texCoord;
+layout(location = 3) in vec3 in_texCoord;
 layout(location = 4) in ivec4 in_indices;
 layout(location = 5) in vec4 in_weights;
 
@@ -78,7 +78,7 @@ Nw = normalize(Nw);
 	vec3 Vv = vec3(u_view * vec4(Vw, 1.0));
 	gl_Position = u_proj * vec4(Vv, 1.0);
 
-	v_texCoord = in_texCoord;
+	v_texCoord = in_texCoord.xy;
 
 	vec4 amb = mix(u_matAmbient, in_color, u_matColorSelector.x);
 	vec4 diff = mix(u_matDiffuse, in_color, u_matColorSelector.y);
