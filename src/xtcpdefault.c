@@ -15,7 +15,7 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 
 	xtcRwMaterial *m = &xtcState.rwMaterial;
 	// TODO: want TME bit more elegantly
-	float *scl = (float*)&xtcState.colorScale[(xtcgRegs.prmode>>4)&1];
+	float *scl = (float*)((xtcgRegs.prmode>>4)&1 ? &xtcState.colorMod.scaleTex : &xtcState.colorMod.scale);
 	xtcMicrocodeSwitch *swtch;
 	if(!xtcState.clipping) swtch = &pipe->code->swtch[0];
 	else switch(primtype) {

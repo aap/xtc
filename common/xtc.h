@@ -61,6 +61,10 @@ STRUCT(xtcRGBA) { uint8 r, g, b, a; };
 typedef struct xtcTexture xtcTexture;
 
 xtcTexture *xtcTextureReadPNG(const uint8 *data, uint32 len);
+void xtcTextureFree(xtcTexture *tex);
+/* called on every bind that changes the texture, with its size in GS
+ * pages, when set: for tracing what a texture cache would have to do */
+extern void (*xtcTextureBindHook)(xtcTexture *tex, int pages);
 void xtcSetTexture(xtcTexture *tex);
 
 ENUM(xtcTCC) {
@@ -94,10 +98,23 @@ void xtcTexFilter(xtcFilter min, xtcFilter mag);
 void xtcTexWrap(xtcWrap u, xtcWrap v);
 void xtcTexLodMode(int lcm, int k, int l);
 
-/* what the vertex colour is multiplied by before the GS sees it: the
- * modulate convention (128 = 1.0) wants the second one */
-void xtcColorScale(float r, float g, float b, float a);
-void xtcColorScaleTex(float r, float g, float b, float a);
+/* What the GS gets.  The lit vertex colour, in 0..255, is clamped per
+ * component and then scaled; the scale has one set for untextured
+ * drawing, where 255 is white, and one for textured, where the GS's
+ * modulate takes 128 as 1.0 and 255 as twice that.  Alpha is in the GS
+ * convention throughout, 128 is opaque.  So the defaults are a clamp of
+ * 255, a scale of (1, 1, 1, 128/255) and a textured scale of 128/255;
+ * colours already in the 128 = 1.0 convention (PS1 data, say) want a
+ * textured scale of (1, 1, 1, 128/255) and the clamp as it is, which
+ * keeps their overbright range.  Not part of the material: the material
+ * is what the lights see, this is what the GS makes of the result. */
+STRUCT(xtcColorMod) {
+	Vec4 clamp;
+	Vec4 scale;
+	Vec4 scaleTex;
+};
+void xtcSetColorMod(const xtcColorMod *mod);
+void xtcGetColorMod(xtcColorMod *mod);
 
 
 /*

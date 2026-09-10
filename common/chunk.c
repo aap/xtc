@@ -321,7 +321,7 @@ void*
 loadChunkMem(const uint8 *file, uint32 size, ChunkResolver resolve)
 {
 	const sChunkHeader *header = (const sChunkHeader*)file;
-	u8 *data;
+	u8 *data, *raw;
 	const u32 *reloc;
 	const u8 *p, *end;
 	u32 dataSize, loc;
@@ -335,10 +335,17 @@ loadChunkMem(const uint8 *file, uint32 size, ChunkResolver resolve)
 	}
 
 	// the data has DMA chains in it, which want qword alignment; the
-	// blocks are laid out for that relative to the start of the file
+	// blocks are laid out for that relative to the start of the file.
+	// aligning loses the pointer malloc gave us, so it goes in the
+	// word before the aligned start and freeChunk reads it back --
+	// hence 32 spare bytes and not 16: 16 at most for the alignment
+	// and 16 to keep that word out of the data.
 	dataSize = header->dataEnd - sizeof(sChunkHeader);
-	data = (u8*)malloc(dataSize + 16);
-	data = (u8*)(((uintptr)data + 15) & ~15);
+	raw = (u8*)malloc(dataSize + 32);
+	if(raw == nil)
+		return nil;
+	data = (u8*)(((uintptr)raw + 16 + 15) & ~15);
+	((void**)data)[-1] = raw;
 	memcpy(data, file + sizeof(sChunkHeader), dataSize);
 
 	// offsets in the file become addresses
@@ -382,4 +389,11 @@ loadChunk(FILE *f, ChunkResolver resolve)
 	data = loadChunkMem(file, (u32)size, resolve);
 	free(file);
 	return data;
+}
+
+void
+freeChunk(void *data)
+{
+	if(data)
+		free(((void**)data)[-1]);
 }

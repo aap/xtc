@@ -142,7 +142,8 @@ xtcpUploadStdLights8(xtcStdMaterial *m, uint32 colsel, uint32 *procs)
 		mdmaVifStCycl(list, 4,4, 0);
 		mdmaBeginUnpack(list, vuLight, 2+16, UNPACK_V4_32, 0);
 
-		mdmaAddF(list, 255.0f, 255.0f, 255.0f, 255.0f);		// clamp
+		mdmaAddF(list, xtcState.colorMod.clamp.x, xtcState.colorMod.clamp.y,
+			xtcState.colorMod.clamp.z, xtcState.colorMod.clamp.w);	// clamp
 //		mdmaAddF(list, 1.0f, 1.0f, 1.0f, 1.0f);			// vertFactor
 //		mdmaAddF(list, 0.3f, 0.3f, 0.3f, 1.0f);			// vertFactor
 //		mdmaAddF(list, 0.0f, 0.0f, 0.0f, 1.0f);			// vertFactor
@@ -215,8 +216,7 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	}
 
 	// TODO: want TME bit more elegantly
-	float *scl = (float*)&xtcState.colorScale[(xtcgRegs.prmode>>4)&1];
-//scl = (float*)&xtcState.colorScale[1];
+	float *scl = (float*)((xtcgRegs.prmode>>4)&1 ? &xtcState.colorMod.scaleTex : &xtcState.colorMod.scale);
 	xtcMicrocodeSwitch *swtch;
 	if(!xtcState.clipping) swtch = &pipe->code->swtch[0];
 	else switch(primtype) {

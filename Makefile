@@ -110,9 +110,21 @@ build/crt0.o:
 # own pattern rule below; make picks the one whose .xm exists.  local/ is
 # wildcarded so `make chunks' still works when it is not there.
 CHKDIR := build/chk
-LOCALXM := $(wildcard local/spyro/world.xm) $(wildcard local/spyro/sky.xm)
-CHUNKS := $(CHKDIR)/fox.chk $(CHKDIR)/fox_anim.chk \
-	$(patsubst local/spyro/%.xm,$(CHKDIR)/%.chk,$(LOCALXM))
+
+# demos/spyro is a viewer of all 35 levels, so there are 70 of these:
+# local/spyro/levels/levelNN/{world,sky}.xm -> build/chk/spyro/
+# levelNN_{world,sky}.chk.  The directory is one level's worth of the
+# name so a pattern rule can do it, and the demo builds the path the
+# same way.  `make -j8 chunks' if you are in a hurry -- it is 70 runs
+# each of the stripper, lua, dvp-as and ld.
+SPYROLVL := $(patsubst local/spyro/levels/%/world.xm,%,\
+	$(wildcard local/spyro/levels/*/world.xm))
+SPYROSKY := $(patsubst local/spyro/levels/%/sky.xm,%,\
+	$(wildcard local/spyro/levels/*/sky.xm))
+SPYROCHK := $(SPYROLVL:%=$(CHKDIR)/spyro/%_world.chk) \
+	$(SPYROSKY:%=$(CHKDIR)/spyro/%_sky.chk)
+
+CHUNKS := $(CHKDIR)/fox.chk $(CHKDIR)/fox_anim.chk $(SPYROCHK)
 
 # the clips demos/fox plays: four standing idles, three sitting, three
 # lying, the alert crouch, and the eight Trans_* clips that get between
@@ -146,13 +158,22 @@ CHKFLAGS :=
 chunks: $(CHUNKS) $(CHKDIR)/fox_anim.xan
 
 # keep the strips and the source around for a look
-.SECONDARY: $(CHUNKS:.chk=.strips) $(CHUNKS:.chk=.dsm) $(CHUNKS:.chk=.o)
+# keep the fox's strips and source around for a look; the 70 level
+# chunks' intermediates are half a gigabyte and go
+.SECONDARY: $(CHKDIR)/fox.strips $(CHKDIR)/fox.dsm $(CHKDIR)/fox.o $(CHKDIR)/fox_anim.dsm $(CHKDIR)/fox_anim.o
 
 # the stripper runs on the host
 HOSTCXX := g++
+HOSTCC := gcc
 build/host/xstrip: tools/xstrip.cpp common/tristrip.cpp common/tristrip.h
 	@mkdir -p $(@D)
 	$(HOSTCXX) -O2 -Icommon -Isrc_gl -o $@ tools/xstrip.cpp common/tristrip.cpp
+
+# spyroconv turns a Spyro the Dragon (PS1) WAD straight into xtc assets,
+# see demos/spyro/import.sh
+build/host/spyroconv: tools/spyroconv.c src/lodepng.c src/lodepng.h
+	@mkdir -p $(@D)
+	$(HOSTCC) -O2 -Isrc -o $@ tools/spyroconv.c src/lodepng.c -lm
 
 XM2DSMDEP := tools/xm2dsm.lua src/vu1/stdPipe.dsm src/vu1/stdSkinPipe.dsm
 
@@ -164,20 +185,39 @@ $(CHKDIR)/%.dsm: samples/fox/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
 	@mkdir -p $(@D)
 	lua tools/xm2dsm.lua -pipes src/vu1 -strips $(CHKDIR)/$*.strips $(CHKFLAGS) $< > $@
 
-$(CHKDIR)/%.strips: local/spyro/%.xm build/host/xstrip
+# the 35 levels.  The stem is levelNN and the part is in the target's
+# name, so world and sky want a rule each.  The samples/fox rules above
+# would have to find samples/fox/spyro/levelNN_world.xm to be used for
+# one of these, so there is nothing ambiguous about it.
+$(CHKDIR)/spyro/%_world.strips: local/spyro/levels/%/world.xm build/host/xstrip
 	@mkdir -p $(@D)
 	build/host/xstrip -o $@ $<
 
-$(CHKDIR)/%.dsm: local/spyro/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
+$(CHKDIR)/spyro/%_world.dsm: local/spyro/levels/%/world.xm \
+		$(CHKDIR)/spyro/%_world.strips $(XM2DSMDEP)
 	@mkdir -p $(@D)
-	lua tools/xm2dsm.lua -pipes src/vu1 -strips $(CHKDIR)/$*.strips $(CHKFLAGS) $< > $@
+	lua tools/xm2dsm.lua -pipes src/vu1 \
+		-strips $(CHKDIR)/spyro/$*_world.strips $(CHKFLAGS) $< > $@
+
+$(CHKDIR)/spyro/%_sky.strips: local/spyro/levels/%/sky.xm build/host/xstrip
+	@mkdir -p $(@D)
+	build/host/xstrip -o $@ $<
+
+$(CHKDIR)/spyro/%_sky.dsm: local/spyro/levels/%/sky.xm \
+		$(CHKDIR)/spyro/%_sky.strips $(XM2DSMDEP)
+	@mkdir -p $(@D)
+	lua tools/xm2dsm.lua -pipes src/vu1 \
+		-strips $(CHKDIR)/spyro/$*_sky.strips $(CHKFLAGS) $< > $@
 
 # animation is the same idea without the DMA chains, so no strips and
-# no microcode: tools/xan2dsm.lua straight from the .xan.  An explicit
-# rule, so the %.dsm pattern above does not go looking for a .xm.
-$(CHKDIR)/fox_anim.dsm: samples/fox/fox.xan tools/xan2dsm.lua
+# no microcode: tools/xan2dsm.lua straight from the .xan.  Its own
+# pattern, so the %.dsm above does not go looking for a .xm -- and a
+# pattern rather than the explicit rule this used to be, because make
+# will not chain .chk <- .o <- .dsm through an explicit one, so
+# `make chunks' on an empty build/chk never got past the .dsm.
+$(CHKDIR)/%_anim.dsm: samples/fox/%.xan tools/xan2dsm.lua
 	@mkdir -p $(@D)
-	lua tools/xan2dsm.lua -name fox_anim $(addprefix -clip ,$(FOXCLIPS)) $< > $@
+	lua tools/xan2dsm.lua -name $*_anim $(addprefix -clip ,$(FOXCLIPS)) $< > $@
 
 # the same clips as text: what the demo falls back to without a chunk,
 # and what tools/xanchkdiff.py checks the chunk against

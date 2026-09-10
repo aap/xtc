@@ -135,6 +135,11 @@ void writeXModel(FILE *f, xModel *mdl);
 void writeXModelChunk(FILE *f, xModel *mdl);
 xModel *loadXModel(const char *path);
 xModel *loadXModelChunk(FILE *f);
+// only a model loadXModel read from a chunk; a model read from text
+// keeps its prim lists, which no backend can give back
+void freeXModel(xModel *mdl);
+// every image readTexturePNG cached, textures of freed models included
+void xTextureCacheFlush(void);
 void buildXModel(xModel *mdl);
 // bind pose bounding sphere in model space
 void xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius);

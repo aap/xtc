@@ -197,12 +197,27 @@ main(int argc, char **argv)
 			strip = xTriStrip(m->numTris, m->tris, maxTunnel, &st, &n);
 			t1 = now();
 			ok = xTriStripVerify(m->numTris, m->tris, n, strip);
-			allok &= ok;
 			if(of){
+				/* a strip that does not verify would draw the
+				 * wrong thing, so it is left out: xm2dsm.lua
+				 * makes a triangle list of a mesh it finds no
+				 * strip for.  Only the test bench below treats
+				 * that as a failure -- one bad mesh must not
+				 * stop a build of 70 models. */
+				if(!ok){
+					fprintf(stderr, "xstrip: %s mesh %d "
+						"does not verify, left as a list\n",
+						argv[i], j);
+					free(strip);
+					free(m->tris);
+					free(m->verts);
+					continue;
+				}
 				fprintf(of, "mesh %d %d\n", j, n);
 				for(int k = 0; k < n; k++)
 					fprintf(of, "%d%c", strip[k], (k % 16 == 15 || k == n-1) ? '\n' : ' ');
 			}else{
+				allok &= ok;
 				int n0;
 				strip0 = xTriStrip(m->numTris, m->tris, 0, &st0, &n0);
 				ok &= xTriStripVerify(m->numTris, m->tris, n0, strip0);

@@ -397,13 +397,14 @@ createTexturePNG(const char *name, const uint8 *data, uint32 size)
  * its texture to the GS again.  Misses are cached too, so a missing
  * texture warns once.
  *
- * Nothing frees textures, so sharing them is safe; the path is compared
- * by pointer because texpath is set to a literal and only changes when a
- * program switches to another model.
+ * The key is texpath and the name together, not the name alone: two
+ * levels both call their images tex_000, and the second must not be
+ * handed the first one's.  Textures are freed only by
+ * xTextureCacheFlush, which drops the lot -- a program switches
+ * texpath and models together, and nothing else holds them.
  */
 static struct {
-	char *name;
-	const char *path;
+	char *path;	// texpath/name, without the extension
 	xtcTexture *tex;
 } texCache[512];
 static int numTexCache;
@@ -416,35 +417,52 @@ readTexturePNG(const char *name)
 	uint8 *data;
 	uint32 size;
 	xtcTexture *tex;
+	int keylen;
+
+	// no snprintf in the PS2's libc; the path is small anyway
+	if(strlen(texpath) + strlen(name) + 8 > sizeof(abspath)) {
+		printf("warning: texture path %s/%s too long\n", texpath, name);
+		return nil;
+	}
+	sprintf(abspath, "%s/%s", texpath, name);
+	keylen = strlen(abspath);
 
 	for(int i = 0; i < numTexCache; i++)
-		if(texCache[i].path == texpath &&
-		   strcmp(texCache[i].name, name) == 0)
+		if(strcmp(texCache[i].path, abspath) == 0)
 			return texCache[i].tex;
 
 	tex = nil;
 	for(int i = 0; extensions[i]; i++) {
-		// no snprintf in the PS2's libc; the path is small anyway
-		if(strlen(texpath) + strlen(name) + 8 > sizeof(abspath))
-			break;
-		sprintf(abspath, "%s/%s%s", texpath, name, extensions[i]);
+		strcpy(abspath+keylen, extensions[i]);
 		if(readfile(abspath, &data, &size)) {
 			tex = xtcTextureReadPNG(data, size);
 			free(data);
 			break;
 		}
 	}
+	abspath[keylen] = '\0';
 	if(tex == nil)
 		printf("warning: texture %s not found in %s\n", name, texpath);
 
 	if(numTexCache < (int)nelem(texCache)) {
 		int i = numTexCache++;
-		texCache[i].name = (char*)emalloc(strlen(name)+1);
-		strcpy(texCache[i].name, name);
-		texCache[i].path = texpath;
+		texCache[i].path = (char*)emalloc(keylen+1);
+		strcpy(texCache[i].path, abspath);
 		texCache[i].tex = tex;
 	}
 	return tex;
+}
+
+// give back every image the cache holds.  the models that point at
+// them have to be gone already, chunk globals and all
+void
+xTextureCacheFlush(void)
+{
+	for(int i = 0; i < numTexCache; i++) {
+		xtcTextureFree(texCache[i].tex);
+		free(texCache[i].path);
+	}
+	numTexCache = 0;
 }
 
 xTexture*
@@ -869,6 +887,16 @@ loadXModelText(char *text, uint32 size)
 	return mdl;
 }
 
+/*
+ * Which models came out of a chunk, so freeXModel knows what it is
+ * looking at.  There is nowhere in xModel to write it: the assembler
+ * lays that struct out too (tools/xm2dsm.lua) and a new field would
+ * mean every chunk on disk is stale.  A program holds a handful of
+ * models at a time, so a small table is enough.
+ */
+static xModel *chunkModels[32];
+static int numChunkModels;
+
 xModel*
 loadXModel(const char *path)
 {
@@ -880,12 +908,48 @@ loadXModel(const char *path)
 		printf("error: can't read %s\n", path);
 		return nil;
 	}
-	if(isChunk(data, size))
+	if(isChunk(data, size)) {
 		mdl = (xModel*)loadChunkMem(data, size, xModelResolve);
-	else
+		if(mdl) {
+			if(numChunkModels < (int)nelem(chunkModels))
+				chunkModels[numChunkModels++] = mdl;
+			else
+				printf("warning: %s won't be freeable, "
+					"too many chunk models\n", path);
+		}
+	} else
 		mdl = loadXModelText((char*)data, size);
 	free(data);
 	return mdl;
+}
+
+/*
+ * What freeXModel can and cannot do.
+ *
+ * A chunk is one block of memory, so the model, its meshes, its
+ * geometry and its prim lists all go with the one freeChunk.  The
+ * textures are not in it -- they are globals the resolver looked up
+ * and the cache owns them, so xTextureCacheFlush is what gives those
+ * back, once the models pointing at them are gone.
+ *
+ * A model read from text is a few hundred separate mallocs, and its
+ * prim lists were built by the backend, which has no way to give one
+ * back (there is no xtcFreePrimList in either).  Freeing the structs
+ * around them would only leak the big part quietly, so this says so
+ * and leaves it alone.
+ */
+void
+freeXModel(xModel *mdl)
+{
+	if(mdl == nil)
+		return;
+	for(int i = 0; i < numChunkModels; i++)
+		if(chunkModels[i] == mdl) {
+			chunkModels[i] = chunkModels[--numChunkModels];
+			freeChunk(mdl);
+			return;
+		}
+	printf("warning: can't free a model read from text\n");
 }
 
 void

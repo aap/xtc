@@ -1384,14 +1384,18 @@ drawIm2D(void)
 static void
 sceneIm2d(void)
 {
-	const float scl = 128.0f/255.0f;
+	xtcColorMod cm, saved;
 
 	xtcDisable(XTC_DEPTH_TEST);
 	xtcEnable(XTC_TEXTURE);
 	xtcSetTexture(raster8);
-	xtcColorScaleTex(1.0f, 1.0f, 1.0f, scl);
+	/* the 2d colours are in the GS's own convention */
+	xtcGetColorMod(&saved);
+	cm = saved;
+	cm.scaleTex = vec4(1.0f, 1.0f, 1.0f, 128.0f/255.0f);
+	xtcSetColorMod(&cm);
 	drawIm2D();
-	xtcColorScaleTex(scl, scl, scl, scl);
+	xtcSetColorMod(&saved);
 }
 
 /*

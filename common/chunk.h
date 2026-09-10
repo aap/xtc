@@ -28,6 +28,9 @@ void writeChunk(ChunkData *chk, FILE *f);
  * buffer and fixed up, the file buffer is the caller's */
 void *loadChunkMem(const uint8 *file, uint32 size, ChunkResolver resolve);
 void *loadChunk(FILE *f, ChunkResolver resolve);
+/* gives the whole chunk back; takes what the two above returned.  the
+ * pointer malloc gave us sits in the word before it */
+void freeChunk(void *data);
 int isChunk(const uint8 *data, uint32 size);
 
 #ifdef __cplusplus

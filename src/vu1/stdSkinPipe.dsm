@@ -248,7 +248,6 @@ SkinLoop:
 	nop				jr vi09
 	nop				nop
 
-;; sketch for decompression
 
 #include "std_lighting.vu"
 

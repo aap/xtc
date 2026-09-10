@@ -318,10 +318,8 @@ struct xtcState
 	uint128 xyzwScale;
 	uint128 xyzwOffset;
 	uint128 clipConsts;
-	uint128 colorScale[2];
-
-	float *pColorScale;
-	float *pColorScaleTex;
+	// the scales get added to VIF packets as qwords, so aligned
+	xtcColorMod colorMod __attribute__((aligned(16)));
 
 	xtcRwMaterial rwMaterial;
 	xtcStdMaterial stdMaterial;

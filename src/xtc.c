@@ -390,23 +390,19 @@ xtcDepthMask(int mask)
 }
 
 void
-xtcColorScale(float r, float g, float b, float a)
+xtcSetColorMod(const xtcColorMod *mod)
 {
-	xtcState.pColorScale[0] = r;
-	xtcState.pColorScale[1] = g;
-	xtcState.pColorScale[2] = b;
-	xtcState.pColorScale[3] = a;
+	if(memcmp(&xtcState.colorMod, mod, sizeof(xtcColorMod)) == 0)
+		return;
+	xtcState.colorMod = *mod;
+	// the clamp rides with the light block, the scale with the switch
 	xtcState.matGen++;
 }
 
 void
-xtcColorScaleTex(float r, float g, float b, float a)
+xtcGetColorMod(xtcColorMod *mod)
 {
-	xtcState.pColorScaleTex[0] = r;
-	xtcState.pColorScaleTex[1] = g;
-	xtcState.pColorScaleTex[2] = b;
-	xtcState.pColorScaleTex[3] = a;
-	xtcState.matGen++;
+	*mod = xtcState.colorMod;
 }
 
 void
@@ -454,8 +450,6 @@ xtcSetList(mdmaList *list)
 void
 xtcInit(int width, int height, int depth)
 {
-	xtcState.pColorScale = (float*)&xtcState.colorScale[0];
-	xtcState.pColorScaleTex = (float*)&xtcState.colorScale[1];
 
 	xtcState.width = width;
 	xtcState.height = height;
@@ -486,9 +480,14 @@ xtcInit(int width, int height, int depth)
 	xtcSetViewMatrix(&identity);
 	xtcSetWorldMatrix(&identity);
 
-	const float scl = 128.0f/255.0f;
-	xtcColorScale(1.0f, 1.0f, 1.0f, scl);
-	xtcColorScaleTex(scl, scl, scl, scl);
+	{
+		const float scl = 128.0f/255.0f;
+		xtcColorMod cm;
+		cm.clamp = vec4(255.0f, 255.0f, 255.0f, 255.0f);
+		cm.scale = vec4(1.0f, 1.0f, 1.0f, scl);
+		cm.scaleTex = vec4(scl, scl, scl, scl);
+		xtcSetColorMod(&cm);
+	}
 
 	xtcRwMaterial *m = &xtcState.rwMaterial;
 	m->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);

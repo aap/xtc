@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <malloc.h>
 
 static void check_allocations(void);
 static void checkblock(uint8 *p);
@@ -199,4 +200,24 @@ check_allocations(void)
 		MemoryBlock *mem = LLLinkGetData(lnk, MemoryBlock, inAllocList);
 		checkblock(MEMBLOCK2PTR(mem));
 	}
+}
+
+/*
+ * The C heap itself, which is what the model and texture loaders use
+ * (the manager above only hooks mdma's allocator, and mdmaMalloc is
+ * malloc unless a program says otherwise).  newlib keeps the numbers,
+ * both toolchains have mallinfo.
+ */
+unsigned int
+memHeapUsed(void)
+{
+	struct mallinfo mi = mallinfo();
+	return mi.uordblks;
+}
+
+unsigned int
+memHeapSize(void)
+{
+	struct mallinfo mi = mallinfo();
+	return mi.arena;
 }

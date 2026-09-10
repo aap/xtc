@@ -47,6 +47,9 @@ struct {
 
 	// skin
 	glm::mat4 boneMatrices[64];
+
+	// what the GS would make of the colour, see xtc.h
+	xtcColorMod colorMod;
 } uniformState;
 
 
@@ -72,7 +75,10 @@ struct {
 	X(u_lightColMat) \
 	X(u_specDir) \
 	X(u_specCol) \
-	X(u_boneMatrices)
+	X(u_boneMatrices) \
+	X(u_colorClamp) \
+	X(u_colorScale) \
+	X(u_colorNorm)
 
 struct Program
 {
@@ -248,6 +254,17 @@ uploadMaterialUniforms(void)
 	glUniform4fv(curProg->u_matSpecular, 1, &mat.specular.x);
 	glUniform4fv(curProg->u_matEmissive, 1, &mat.emissive.x);
 	glUniform1f(curProg->u_matShininess, mat.specular.w);
+
+	// the colour mod in the GS's terms: the shader works in 0..255
+	// there and divides by what the GS would take as 1.0 -- 255 for
+	// an untextured colour, 128 for the modulate, 128 for alpha
+	const xtcColorMod &cm = uniformState.colorMod;
+	int textured = textures[0] != nil;
+	glm::vec4 norm(textured ? 128.0f : 255.0f, textured ? 128.0f : 255.0f,
+	               textured ? 128.0f : 255.0f, 128.0f);
+	glUniform4fv(curProg->u_colorClamp, 1, &cm.clamp.x);
+	glUniform4fv(curProg->u_colorScale, 1, textured ? &cm.scaleTex.x : &cm.scale.x);
+	glUniform4fv(curProg->u_colorNorm, 1, value_ptr(norm));
 }
 
 // the one hardcoded light of the default and skin pipelines
@@ -438,6 +455,8 @@ xtcSetTextureN(int n, xtcTexture *tex)
 		glBindTextureUnit(n, 0);
 	textures[n] = tex;
 }
+
+void (*xtcTextureBindHook)(xtcTexture *tex, int pages);
 
 void
 xtcSetTexture(xtcTexture *tex)
@@ -638,8 +657,8 @@ void xtcTexFunc(xtcTCC tcc, xtcTFX tfx) { (void)tcc; (void)tfx; }
 void xtcTexFilter(xtcFilter min, xtcFilter mag) { (void)min; (void)mag; }
 void xtcTexWrap(xtcWrap u, xtcWrap v) { (void)u; (void)v; }
 void xtcTexLodMode(int lcm, int k, int l) { (void)lcm; (void)k; (void)l; }
-void xtcColorScale(float r, float g, float b, float a) { (void)r; (void)g; (void)b; (void)a; }
-void xtcColorScaleTex(float r, float g, float b, float a) { (void)r; (void)g; (void)b; (void)a; }
+void xtcSetColorMod(const xtcColorMod *mod) { uniformState.colorMod = *mod; }
+void xtcGetColorMod(xtcColorMod *mod) { *mod = uniformState.colorMod; }
 
 
 
@@ -678,6 +697,18 @@ xtcTextureReadPNG(const u8 *data, u32 size)
 	free(texdata);
 
 	return tex;
+}
+
+void
+xtcTextureFree(xtcTexture *tex)
+{
+	if(tex == nil)
+		return;
+	for(u32 i = 0; i < nelem(textures); i++)
+		if(textures[i] == tex)
+			xtcSetTextureN(i, nil);
+	glDeleteTextures(1, &tex->tex);
+	free(tex);
 }
 
 
@@ -784,6 +815,10 @@ ImmState immstate;
 void
 xtcInit(void)
 {
+	const float scl = 128.0f/255.0f;
+	uniformState.colorMod.clamp = vec4(255.0f, 255.0f, 255.0f, 255.0f);
+	uniformState.colorMod.scale = vec4(1.0f, 1.0f, 1.0f, scl);
+	uniformState.colorMod.scaleTex = vec4(scl, scl, scl, scl);
 	xtcSetPipeline(defaultPipeline);
 
 	glCreateVertexArrays(1, &immstate.vao);

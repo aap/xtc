@@ -731,6 +731,57 @@ L_xtcSetColorMaterial(lua_State *L)
 	return 0;
 }
 
+// a table of four numbers at idx into v; nothing if it is nil
+static void
+readVec4(lua_State *L, int idx, Vec4 *v)
+{
+	float *f = &v->x;
+	if(lua_isnoneornil(L, idx))
+		return;
+	luaL_checktype(L, idx, LUA_TTABLE);
+	for(int i = 0; i < 4; i++) {
+		lua_rawgeti(L, idx, i+1);
+		f[i] = luaL_checknumber(L, -1);
+		lua_pop(L, 1);
+	}
+}
+
+static void
+pushVec4(lua_State *L, const Vec4 *v)
+{
+	const float *f = &v->x;
+	lua_createtable(L, 4, 0);
+	for(int i = 0; i < 4; i++) {
+		lua_pushnumber(L, f[i]);
+		lua_rawseti(L, -2, i+1);
+	}
+}
+
+// xtcSetColorMod(scale, scaleTex, clamp): tables of four, nil keeps
+static int
+L_xtcSetColorMod(lua_State *L)
+{
+	xtcColorMod cm;
+	xtcGetColorMod(&cm);
+	readVec4(L, 1, &cm.scale);
+	readVec4(L, 2, &cm.scaleTex);
+	readVec4(L, 3, &cm.clamp);
+	xtcSetColorMod(&cm);
+	return 0;
+}
+
+// xtcGetColorMod() -> scale, scaleTex, clamp
+static int
+L_xtcGetColorMod(lua_State *L)
+{
+	xtcColorMod cm;
+	xtcGetColorMod(&cm);
+	pushVec4(L, &cm.scale);
+	pushVec4(L, &cm.scaleTex);
+	pushVec4(L, &cm.clamp);
+	return 3;
+}
+
 void
 newMetatable(lua_State *L, const char *name, const luaL_Reg *meta)
 {
@@ -771,6 +822,8 @@ registerXtc(lua_State *L)
 	lua_register(L, "xtcStdMaterial", L_xtcStdMaterial);
 	lua_register(L, "xtcSetStdMaterial", L_xtcSetStdMaterial);
 	lua_register(L, "xtcSetColorMaterial", L_xtcSetColorMaterial);
+	lua_register(L, "xtcSetColorMod", L_xtcSetColorMod);
+	lua_register(L, "xtcGetColorMod", L_xtcGetColorMod);
 
 	newMetatable(L, "xtcLight", xtcLight__meta);
 	lua_pop(L, 1);

@@ -92,6 +92,7 @@ xtcTextureReadPNG(const uint8 *data, uint32 len)
 	uint32 error = lodepng_decode(&raw, &w, &h, &state, data, len);
 	if(error) {
 		printf("lodepng error %s\n", lodepng_error_text(error));
+		lodepng_state_cleanup(&state);
 		return nil;
 	}
 
@@ -132,11 +133,13 @@ xtcTextureReadPNG(const uint8 *data, uint32 len)
 	def:
 		// can't handle format, load as 32
 		lodepng_free(raw);
+		lodepng_state_cleanup(&state);
 		lodepng_state_init(&state);
 		error = lodepng_decode(&raw, &w, &h, &state, data, len);
 		if(error){
 			mdmaFree(tex);
 			printf("lodepng error %s\n", lodepng_error_text(error));
+			lodepng_state_cleanup(&state);
 			return nil;
 		}
 		assert(state.info_raw.bitdepth == 8);
@@ -154,6 +157,10 @@ xtcTextureReadPNG(const uint8 *data, uint32 len)
 	}
 
 	lodepng_free(raw);
+	// the state holds the file's palette and the raw one.  Without
+	// this every texture leaks both, which only shows once a program
+	// loads more than one set of them -- see demos/spyro
+	lodepng_state_cleanup(&state);
 
 	xtctTexBuildChains(tex);
 
@@ -406,13 +413,38 @@ xtctUpload(xtcTexture *tex)
 	mdmaCloseTag(l);
 }
 
+/*
+ * The GS side needs nothing: the memory above the frame buffers is
+ * handed out in order and the whole lot is forgotten when it wraps,
+ * so a texture that is gone simply never asks for it again.  Only the
+ * binding has to go -- xtcSetTexture compares addresses, and the next
+ * texture may well be malloc'd at the one just freed.
+ */
+void
+xtcTextureFree(xtcTexture *tex)
+{
+	if(tex == nil)
+		return;
+	if(xtcState.tex == tex)
+		xtcState.tex = nil;
+	mdmaFree(tex->pkts);
+	mdmaFree(tex->pixels);
+	mdmaFree(tex->clut);
+	mdmaFree(tex);
+}
+
+void (*xtcTextureBindHook)(xtcTexture *tex, int pages);
+
 void
 xtcSetTexture(xtcTexture *tex)
 {
 	if(xtcState.tex != tex) {
 		xtcState.tex = tex;
-		if(tex)
+		if(tex) {
+			if(xtcTextureBindHook)
+				xtcTextureBindHook(tex, tex->numPages);
 			xtctUpload(tex);
+		}
 	}
 }
 

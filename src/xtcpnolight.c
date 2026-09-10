@@ -42,7 +42,7 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 		mdmaVifStCycl(l, 4,4, 0);
 		mdmaBeginUnpack(l, vuGifTag, 2, UNPACK_V4_32, 0);
 			mdmaGifTag(l, 0, 1, 1,primtype, GIF_PACKED, 3, xtcpVertRegs);
-			mdmaAdd(l, xtcState.colorScale[(xtcgRegs.prmode>>4)&1]);
+			mdmaAdd(l, *(uint128*)((xtcgRegs.prmode>>4)&1 ? &xtcState.colorMod.scaleTex : &xtcState.colorMod.scale));
 		mdmaEndUnpack(l);
 
 		mdmaVifNop(l, 0);

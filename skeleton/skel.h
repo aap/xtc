@@ -53,5 +53,10 @@ extern int skelFrameCount;
  * cheap enough to be always on */
 extern unsigned int skelTimeCpu, skelTimeGs, skelTimeVsync;
 unsigned int skelCount(void);
+/* what skelCount counts in: the EE clock.  (Measured: a frame that
+ * waits for one NTSC field is 4.91M of them.)  32 bits wrap every 14
+ * seconds, so only differences shorter than that mean anything --
+ * which is what the timers above and a load are */
+#define SKEL_TICKS_PER_SEC 294912000
 
 #endif

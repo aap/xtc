@@ -12,6 +12,9 @@ out vec4 v_colorSpec;
 out vec2 v_texCoord;
 
 uniform mat4 u_world;
+uniform vec4 u_colorClamp;
+uniform vec4 u_colorScale;
+uniform vec4 u_colorNorm;
 uniform mat4 u_normal;
 uniform mat4 u_view;
 uniform mat4 u_proj;
@@ -108,6 +111,8 @@ Nw = normalize(Nw);
 		v_colorSpec.rgb += vec3(u_lightSpecular*spec*sl);
 	}
 
-	v_color = clamp(v_color, 0.0, 1.0);
+	// the GS's view of it: clamp in 0..255, scale, and back to 1.0
+	// being what the GS takes as 1.0 (see xtcColorMod)
+	v_color = min(max(v_color, 0.0)*255.0, u_colorClamp)*u_colorScale/u_colorNorm;
 	v_colorSpec = clamp(v_colorSpec, 0.0, 1.0);
 }

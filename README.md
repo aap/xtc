@@ -32,9 +32,10 @@ similar in spirit to traditional OpenGL.
 * `demos/` -- one directory per PS2 program, each linked into its own
   ELF in the repo root with both toolchains: `xtcdemo/` (the example
   and test scenes), `fox/` (the fox idling through a random walk of
-  poses, model and animation as chunks) and `spyro/` (a Spyro the
-  Dragon level; the assets are the game's, so they are not here:
-  `demos/spyro/import.sh` makes them from the ripped game).
+  poses, model and animation as chunks) and `spyro/` (a viewer of all
+  35 Spyro the Dragon levels, START and SELECT between them; the assets
+  are the game's, so they are not here: `demos/spyro/import.sh` makes
+  them from the ripped game).
 * `src_gl/` -- the OpenGL backend and sketch: the same API on GLFW/glad,
   plus assimp import, a Lua/Fennel driven viewer and demo scripts.
 * `tools/` -- offline tooling: chunks and prim lists as dvp-as source
@@ -149,6 +150,13 @@ for the default pipe and `xtcStdMaterial`
 for the std and skin pipes.
 Which terms take the vertex colour instead is render state,
 `xtcSetColorMaterial`, like `glColorMaterial`.
+What the GS makes of the lit colour is render state too, `xtcColorMod`:
+a clamp and two scales, one for untextured drawing and one for the
+modulate, all in the GS's terms (255 is white, 128 is 1.0 for the
+modulate and for alpha), and the GL backend does the same arithmetic
+in its shaders so the same numbers give the same picture.
+Colours that already are in the 128 = 1.0 convention, the PS1's,
+are drawn as they are with a textured scale of 1.
 
 ### Textures
 
