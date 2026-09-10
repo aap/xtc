@@ -76,6 +76,7 @@ xtcSetProjectionMatrix(const Mat4 *mat)
 	p[3] = xtcState.far;
 
 	updateZ();
+	xtcState.xformGen++;
 }
 
 void
@@ -89,12 +90,18 @@ xtcSetViewMatrix(const Mat4 *mat)
 	xtcState.view[8] = -xtcState.view[8];
 	xtcState.view[12] = -xtcState.view[12];
 */
+	xtcState.xformGen++;
 }
 
 void
 xtcSetWorldMatrix(const Mat4 *mat)
 {
+	// a model's meshes set the same matrix one after the other; the
+	// pipelines re-upload on the generation, so only a change counts
+	if(memcmp(&xtcState.world, mat, sizeof(Mat4)) == 0)
+		return;
 	xtcState.world = *mat;
+	xtcState.xformGen++;
 }
 
 Mat4
@@ -131,6 +138,7 @@ xtcViewport(int x, int y, int width, int height)
 	p = (float*)&xtcState.xyzwOffset;
 	p[0] = 2048 - xtcState.width/2 + x + width/2;
 	p[1] = 2048 + xtcState.height/2 - y - height/2;
+	xtcState.xformGen++;
 }
 
 void
@@ -346,6 +354,7 @@ xtcFog(float start, float end, uint32 col)
 	p = (float*)&xtcState.clipConsts;
 	p[0] = start;
 	p[1] = end;
+	xtcState.xformGen++;
 }
 
 void
@@ -369,13 +378,15 @@ xtcPixelMask(uint32 mask)
 	xtcgRegs.c1.frame |= (uint64)mask << 32;
 }
 
+// 1 masks the z buffer, like the GS ZMSK -- which is where this goes.
+// (It used to poke FRAME, i.e. FBMSK, which is xtcPixelMask's register.)
 void
 xtcDepthMask(int mask)
 {
 	if(mask)
-		xtcgRegs.c1.frame |= (uint64)1 << 32;
+		xtcgRegs.c1.zbuf |= (uint64)1 << 32;
 	else
-		xtcgRegs.c1.frame &= ~((uint64)1 << 32);
+		xtcgRegs.c1.zbuf &= ~((uint64)1 << 32);
 }
 
 void
@@ -385,6 +396,7 @@ xtcColorScale(float r, float g, float b, float a)
 	xtcState.pColorScale[1] = g;
 	xtcState.pColorScale[2] = b;
 	xtcState.pColorScale[3] = a;
+	xtcState.matGen++;
 }
 
 void
@@ -394,12 +406,14 @@ xtcColorScaleTex(float r, float g, float b, float a)
 	xtcState.pColorScaleTex[1] = g;
 	xtcState.pColorScaleTex[2] = b;
 	xtcState.pColorScaleTex[3] = a;
+	xtcState.matGen++;
 }
 
 void
 xtcSetAmbient(float r, float g, float b)
 {
 	xtcState.ambient = vec4(r, g, b, 0.0f);
+	xtcState.lightGen++;
 }
 
 void xtcSetLight(int n, const xtcLight *light)
@@ -407,6 +421,7 @@ void xtcSetLight(int n, const xtcLight *light)
 	if(n < 0 || (uint32)n >= nelem(xtcState.lights))
 		return;
 	xtcState.lights[n] = *light;
+	xtcState.lightGen++;
 }
 
 void xtcSetRwMaterial(const xtcRwMaterial *mat)
@@ -416,12 +431,18 @@ void xtcSetRwMaterial(const xtcRwMaterial *mat)
 
 void xtcSetStdMaterial(const xtcStdMaterial *mat)
 {
+	if(memcmp(&xtcState.stdMaterial, mat, sizeof(xtcStdMaterial)) == 0)
+		return;
 	xtcState.stdMaterial = *mat;
+	xtcState.matGen++;
 }
 
 void xtcSetColorMaterial(uint32 bits)
 {
+	if(xtcState.stdColSel == bits)
+		return;
 	xtcState.stdColSel = bits;
+	xtcState.matGen++;
 }
 
 void

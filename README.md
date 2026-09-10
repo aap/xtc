@@ -22,17 +22,31 @@ similar in spirit to traditional OpenGL.
   platform independent model, skeleton, animation and drawing code
   (`xmodel.*`, `xanim.cpp`, `xdraw.cpp`, the text and chunk formats).
   Built into both backends.
-* `src/` -- the PS2 backend: the GS layer, VU1 pipelines and their
-  microcode (`vu1/`), textures, the example scenes and a small skeleton
-  (`main.c`, `scenes.c`, `joy.c` for the pad, `fio.c` for host files).
+* `src/` -- the PS2 backend, the library and nothing else: the GS layer,
+  VU1 pipelines and their microcode (`vu1/`), textures, host files
+  (`xfile.c`), offline prim lists (`data/`).
+* `skeleton/` -- the program layer both PS2 demos share, in librw's
+  sense: the pad (`joy.c`), the boot ROM's FILEIO client (`fio.c`),
+  the debug allocator (`mem.c`) and the graphics context, VIF list and
+  frame loop (`skel.c`).
+* `demos/` -- one directory per PS2 program, each linked into its own
+  ELF in the repo root with both toolchains: `xtcdemo/` (the example
+  and test scenes), `fox/` (the fox idling through a random walk of
+  poses, model and animation as chunks) and `spyro/` (a Spyro the
+  Dragon level; the assets are the game's, so they are not here:
+  `demos/spyro/import.sh` makes them from the ripped game).
 * `src_gl/` -- the OpenGL backend and sketch: the same API on GLFW/glad,
   plus assimp import, a Lua/Fennel driven viewer and demo scripts.
-* `tools/` -- offline tooling: prim lists as dvp-as source
-  (`primdsm.py`, `DSMNOTES.md`), the xpl asset kit, OBJ helpers,
-  animation cutting, the PCSX2 runner.
+* `tools/` -- offline tooling: chunks and prim lists as dvp-as source
+  (`chunk.inc`, `chk.ld`, `xm2dsm.lua`, `primdsm.py`, `DSMNOTES.md`),
+  the tri stripper's test bench (`xstrip.cpp`), the xpl asset kit,
+  OBJ helpers, animation cutting, the PCSX2 runner.
 * `samples/` -- the sample assets, a submodule of
   [xtc-assets](https://github.com/aap/xtc-assets):
   the fox, the skinning test model (38 bones, 69 clips).
+* `local/` -- gitignored, not in the repo: converted assets that may not
+  be published. A demo loads `local/NAME/` over `host:` and the chunk
+  rules build `build/chk/*.chk` from any `.xm` found there.
 
 ## Architecture
 
@@ -112,6 +126,15 @@ or as a ref chain into per-attribute arrays that no pipeline layout touches.
 Render states are handled similarly to OpenGL.
 GS register changes are cached so redundant state changes
 should not cause terrible overhead.
+The same goes for what the VU holds: the setters bump generation
+counters for the transforms, the lights and the material,
+and the std pipe only recomputes and re-uploads what changed since its
+last draw, so a model with many materials pays for one matrix and one
+light block.
+`skeleton/skel.c` keeps three counters per frame, the EE building the
+list, the DMA and GS running it, and the vsync wait, which is how the
+Spyro level went from 20 to 60 frames per second: the hardware was idle
+and the EE redid the same uploads 838 times.
 
 ### Lighting & Materials
 
@@ -150,11 +173,43 @@ and `xAnimPlayer` to drive a model with a clip.
 Two file formats:
 `.xm`/`.xan` are text and portable, written by the GL sketch
 (from anything assimp reads, or a RenderWare DFF) and loaded on both backends;
-`.chk` is a relocated memory image, fast to load but per target,
-and only the PC writes it so far.
+`.chk` is a memory image with a fixup table, one read and one pass to load,
+and per target.
+`loadXModel` tells them apart by the first bytes.
 `buildXModel` turns the geometry into prim lists through the std or skin pipe,
-`xModelDraw` draws a model with its skeleton.
+unless the file brought them,
+and `xModelDraw` draws a model with its skeleton.
 The PS2 reads the files over `host:` (`src/xfile.c`).
+
+### Chunks from the assembler
+
+The PS2's chunks are made by the toolchain, not by a converter of its own:
+`tools/xm2dsm.lua` writes the model's structures as dvp-as source,
+every pointer through the `ptr` macro of `tools/chunk.inc`,
+which records the field's address in a fixup section,
+and each mesh's prim list as a ref chain into per-attribute arrays
+batched for the std or skin microcode.
+`tools/chk.ld` links that at address 0 into the file the loader expects:
+header, data, fixup table, global table.
+Pointers to things outside the file, the pipeline of a prim list
+and the texture of a material, are `global` entries, class and name,
+that the loader hands to a resolver (`xModelResolve` in `common/xmodel.cpp`).
+The PC writer (`writeXModelChunk`) produces the same layout,
+with the textures as globals too.
+`make chunks` builds `build/chk/fox.chk` from `samples/fox/fox.xm`,
+which is what the fox scene loads;
+`-nogeo` in `CHKFLAGS` leaves the geometry out and keeps only the chains.
+
+### Tri strips
+
+`common/tristrip.cpp` turns a triangle list into one stitched strip:
+greedy paths through the dual graph, then Stewart's tunnel operator
+joins them (a path alternating non-strip and strip edges between two
+strip ends is complemented; a cycle is walked for and undone).
+`xTriStripVerify` checks the strip against the source triangles,
+`tools/xstrip` runs both over `.xm` files with vertices welded on all
+attributes, and writes the strips the chunk converter takes.
+The fox goes from 19956 list vertices to 9160, the chunk from 1.3 MB to 0.8.
 
 ### The GL sketch
 
@@ -189,13 +244,13 @@ still requires a lot of work on the details.
 	* figure out division between MDMA and XTC properly
 	* some debugging/profiling functionality
 	* better chain handling and buffer flipping
-	* chunk files written by the console itself, ref chains straight from loaded geometry
+	* animations as chunks too; chunks written by the console itself
 	* a resident VU1 library with per-pipeline front ends
 	* Lua on the PS2
 
 * Textures
 	* PATH3 texture uploads
-	* GS texture cache
+	* a real GS texture cache (today: resident until the memory is full, then start over)
 	* swizzled textures
 	* mipmapping
 
@@ -209,7 +264,7 @@ still requires a lot of work on the details.
 		* sprites/particles from points
 		* morphing?
 	* the material/pass structure of the model layer
-	* don't re-upload matrix and lights all the time
+	* sort draws by texture and material
 
 * Toolchain
 	* currently uses (free!) sony SDK, would be nice to support open source ps2sdk

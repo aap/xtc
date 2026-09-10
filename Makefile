@@ -1,9 +1,31 @@
 CC=ee-gcc
 CXX=ee-g++
 
-TARGET=xtcdemo
+# Every program under demos/ is built into an ELF of its own, with both
+# toolchains, out of the same library and skeleton objects:
+#
+#	src/		the PS2 backend and its microcode -- the library
+#	common/		the portable model/anim/draw layer, both backends
+#	skeleton/	the program layer: pad, host files, frame loop
+#	demos/NAME/	one program; its ELF is NAME.elf / NAME_freesce.elf
+#
+# The ELFs land in the repo root because host: paths resolve next to the
+# ELF and the scenes want ./build/chk and ./samples from here.
+#
+# Adding a demo: make the directory with a .c in it and copy the four
+# link rules below (two toolchains x two lines).  The SDK's make is too
+# old for $(eval), so the rules are spelled out rather than generated.
+# The list is whatever directories are there, so a demo that is not
+# checked in (spyro, while its assets are sorted out) builds when
+# present and is not missed when absent.
+DEMOS := $(sort $(notdir $(patsubst %/,%,$(dir $(wildcard demos/*/*.c)))))
 
-SRCDIRS := src src/vu1 src/data common
+# the SDK's make is too old for order-only prerequisites, so the chunks
+# the demos load are a sibling goal rather than one of the ELFs'
+all: $(DEMOS:%=%.elf) chunks
+
+SRCDIRS := src src/vu1 src/data skeleton common
+DEMODIRS := $(DEMOS:%=demos/%)
 OBJDIR := build
 
 # mdma is a sibling checkout, built with our compiler and our flags:
@@ -15,9 +37,18 @@ MDMAOBJ := $(addprefix $(OBJDIR)/mdma/,$(notdir $(MDMASRC:.c=.o)))
 
 SCELIBDIR := /usr/local/sce/ee/lib
 
+# the library and skeleton, shared by every demo
 CXXSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.cpp))
 CSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.c))
 VUSRC := $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.dsm))
+
+# and one demo's own sources.  $(call demosrc,NAME), $(call demoobj,DIR,NAME)
+demosrc = $(wildcard demos/$(1)/*.c) $(wildcard demos/$(1)/*.cpp) \
+	$(wildcard demos/$(1)/*.dsm)
+demoobj = $(addprefix $(1)/,$(patsubst %.dsm,%.o,$(patsubst %.cpp,%.o,\
+	$(patsubst %.c,%.o,$(call demosrc,$(2))))))
+
+DEMOSRC := $(foreach d,$(DEMOS),$(call demosrc,$(d)))
 
 #CFLAGS := -fno-common -fno-exceptions
 CFLAGS := -std=gnu99 -Os -fno-common -fno-exceptions ####-ffunction-sections -fdata-sections
@@ -36,7 +67,8 @@ CRT_BEGIN := build/crt0.o $(GCCLIB)/crti.o $(GCCLIB)/crtbegin.o
 CRT_END := $(GCCLIB)/crtend.o $(GCCLIB)/crtn.o
 
 OBJ := $(addprefix $(OBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o))
-DEP := $(addprefix $(OBJDIR)/,$(CSRC:.c=.d) $(CXXSRC:.cpp=.d))
+DEP := $(addprefix $(OBJDIR)/,$(CSRC:.c=.d) $(CXXSRC:.cpp=.d) \
+	$(filter %.d,$(DEMOSRC:.c=.d) $(DEMOSRC:.cpp=.d)))
 
 ASINC := $(addprefix -I,$(SRCDIRS))
 INC := $(addprefix -I,$(SRCDIRS)) -Icommon	\
@@ -44,16 +76,120 @@ INC := $(addprefix -I,$(SRCDIRS)) -Icommon	\
 	-I/usr/local/sce/common/include	\
 	-I/usr/local/sce/ee/include
 
-$(TARGET).elf: build/crt0.o $(OBJ) $(MDMAOBJ)
-	echo $(OBJ)
-	$(CXX) -o $@ $(CRT_BEGIN) $(OBJ) $(MDMAOBJ) $(LIBS) $(CRT_END) -T /usr/local/sce/ee/lib/app.cmd -L/usr/local/sce/ee/lib -lm -nostartfiles
+# what every ELF is made of besides the demo's own objects.
+# $(call linksce,the demo's objects)
+COMMONOBJ := $(OBJ) $(MDMAOBJ)
+linksce = $(CXX) -o $@ $(CRT_BEGIN) $(COMMONOBJ) $(1) $(LIBS) $(CRT_END) \
+	-T /usr/local/sce/ee/lib/app.cmd -L/usr/local/sce/ee/lib -lm -nostartfiles
 
-run: $(TARGET).elf
-	dsedb -r run $(TARGET).elf
+XTCDEMO_OBJ := $(call demoobj,$(OBJDIR),xtcdemo)
+SPYRO_OBJ := $(call demoobj,$(OBJDIR),spyro)
+FOX_OBJ := $(call demoobj,$(OBJDIR),fox)
+
+xtcdemo.elf: build/crt0.o $(COMMONOBJ) $(XTCDEMO_OBJ)
+	$(call linksce,$(XTCDEMO_OBJ))
+spyro.elf: build/crt0.o $(COMMONOBJ) $(SPYRO_OBJ)
+	$(call linksce,$(SPYRO_OBJ))
+fox.elf: build/crt0.o $(COMMONOBJ) $(FOX_OBJ)
+	$(call linksce,$(FOX_OBJ))
+
+run: xtcdemo.elf
+	dsedb -r run xtcdemo.elf
 
 build/crt0.o:
 	@mkdir -p $(@D)
 	$(CC) -c -xassembler-with-cpp -o $@ $(SCELIBDIR)/crt0.s
+
+# chunks: models written as assembler source by tools/xm2dsm.lua and
+# linked into the file the loader wants (tools/chunk.inc, tools/chk.ld).
+# per target like every chunk, but the same for both toolchains.
+#
+# A .xm may come from samples/ (the tracked assets) or from local/, which
+# is gitignored and holds whatever the machine happens to have -- game
+# assets that must not end up in the repo, for one.  Each source gets its
+# own pattern rule below; make picks the one whose .xm exists.  local/ is
+# wildcarded so `make chunks' still works when it is not there.
+CHKDIR := build/chk
+LOCALXM := $(wildcard local/spyro/world.xm) $(wildcard local/spyro/sky.xm)
+CHUNKS := $(CHKDIR)/fox.chk $(CHKDIR)/fox_anim.chk \
+	$(patsubst local/spyro/%.xm,$(CHKDIR)/%.chk,$(LOCALXM))
+
+# the clips demos/fox plays: four standing idles, three sitting, three
+# lying, the alert crouch, and the eight Trans_* clips that get between
+# those four poses.  All of them keep the fox where it is -- the
+# locomotion clips animate RigRoot and would walk it out of frame.
+# samples/ is a submodule, so the cut is made here and not in there.
+FOXCLIPS := \
+	A4_Stand_Breathing_01		\
+	A1_Stand_Idle_02		\
+	A3_Stand_Idle_01		\
+	A2_Stand_Eating_01		\
+	Sitting_Breathing_01		\
+	Sitting_Idle_01			\
+	Sitting_Idle_02			\
+	Lying_Breathing_01		\
+	Lying_Idle_01			\
+	Lying_Idle_02			\
+	A5_StandAngry_Breathing_01	\
+	Trans_Stand_to_Sitting		\
+	Trans_Sitting_to_Stand		\
+	Trans_Stand_to_Lying		\
+	Trans_Lying_to_Stand		\
+	Trans_Sitting_to_Lying		\
+	Trans_Lying_to_Sitting		\
+	Trans_Stand_to_StandAngry	\
+	Trans_StandAngry_to_Stand
+# -nogeo drops the xGeometry from the chunk (then the bounding sphere is
+# a guess), see tools/xm2dsm.lua
+CHKFLAGS :=
+
+chunks: $(CHUNKS) $(CHKDIR)/fox_anim.xan
+
+# keep the strips and the source around for a look
+.SECONDARY: $(CHUNKS:.chk=.strips) $(CHUNKS:.chk=.dsm) $(CHUNKS:.chk=.o)
+
+# the stripper runs on the host
+HOSTCXX := g++
+build/host/xstrip: tools/xstrip.cpp common/tristrip.cpp common/tristrip.h
+	@mkdir -p $(@D)
+	$(HOSTCXX) -O2 -Icommon -Isrc_gl -o $@ tools/xstrip.cpp common/tristrip.cpp
+
+XM2DSMDEP := tools/xm2dsm.lua src/vu1/stdPipe.dsm src/vu1/stdSkinPipe.dsm
+
+$(CHKDIR)/%.strips: samples/fox/%.xm build/host/xstrip
+	@mkdir -p $(@D)
+	build/host/xstrip -o $@ $<
+
+$(CHKDIR)/%.dsm: samples/fox/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
+	@mkdir -p $(@D)
+	lua tools/xm2dsm.lua -pipes src/vu1 -strips $(CHKDIR)/$*.strips $(CHKFLAGS) $< > $@
+
+$(CHKDIR)/%.strips: local/spyro/%.xm build/host/xstrip
+	@mkdir -p $(@D)
+	build/host/xstrip -o $@ $<
+
+$(CHKDIR)/%.dsm: local/spyro/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
+	@mkdir -p $(@D)
+	lua tools/xm2dsm.lua -pipes src/vu1 -strips $(CHKDIR)/$*.strips $(CHKFLAGS) $< > $@
+
+# animation is the same idea without the DMA chains, so no strips and
+# no microcode: tools/xan2dsm.lua straight from the .xan.  An explicit
+# rule, so the %.dsm pattern above does not go looking for a .xm.
+$(CHKDIR)/fox_anim.dsm: samples/fox/fox.xan tools/xan2dsm.lua
+	@mkdir -p $(@D)
+	lua tools/xan2dsm.lua -name fox_anim $(addprefix -clip ,$(FOXCLIPS)) $< > $@
+
+# the same clips as text: what the demo falls back to without a chunk,
+# and what tools/xanchkdiff.py checks the chunk against
+$(CHKDIR)/fox_anim.xan: samples/fox/fox.xan tools/xancut.py
+	@mkdir -p $(@D)
+	python3 tools/xancut.py $< $@ $(FOXCLIPS)
+
+$(CHKDIR)/%.o: $(CHKDIR)/%.dsm tools/chunk.inc
+	ee-dvp-as -Itools $< -o $@
+
+$(CHKDIR)/%.chk: $(CHKDIR)/%.o tools/chk.ld
+	ee-ld -T tools/chk.ld -o $@ $<
 
 $(OBJDIR)/%.o: $(OBJDIR)/%.dsm_x
 	@mkdir -p $(@D)
@@ -132,7 +268,11 @@ FSOBJDIR := build/freesce
 FSOBJ := $(addprefix $(FSOBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o)) \
 	$(addprefix $(FSOBJDIR)/mdma/,$(notdir $(MDMASRC:.c=.o)))
 
-freesce: $(TARGET)_freesce.elf
+FS_XTCDEMO_OBJ := $(call demoobj,$(FSOBJDIR),xtcdemo)
+FS_SPYRO_OBJ := $(call demoobj,$(FSOBJDIR),spyro)
+FS_FOX_OBJ := $(call demoobj,$(FSOBJDIR),fox)
+
+freesce: $(DEMOS:%=%_freesce.elf) chunks
 
 # Linked with the C driver: the objects are C++ but nothing needs the C++
 # runtime (no exceptions, no new, no dynamic initialisers), and ee-g++ would
@@ -141,12 +281,20 @@ freesce: $(TARGET)_freesce.elf
 # No crtbegin/crtend either: gcc 2.9 has none for this target and puts __main,
 # __do_global_ctors and __do_global_dtors together in libgcc's __main.o, which
 # collides with the __main in freesce's crtbegin.o.
-$(TARGET)_freesce.elf: $(FSOBJ)
-	$(FSCC) -o $@ $(FREESCE_LIB)/crt0.o $(FREESCE_LIB)/crti.o \
-	    $(FSOBJ) \
+#
+# $(call linkfs,the demo's objects)
+linkfs = $(FSCC) -o $@ $(FREESCE_LIB)/crt0.o $(FREESCE_LIB)/crti.o \
+	    $(FSOBJ) $(1) \
 	    -Wl,--start-group $(FREESCE_LIBS) -lc -lm -lgcc -Wl,--end-group \
 	    $(FREESCE_LIB)/crtn.o \
 	    -T $(FREESCE_LIB)/app.cmd -L$(FREESCE_LIB) -nostartfiles
+
+xtcdemo_freesce.elf: $(FSOBJ) $(FS_XTCDEMO_OBJ)
+	$(call linkfs,$(FS_XTCDEMO_OBJ))
+spyro_freesce.elf: $(FSOBJ) $(FS_SPYRO_OBJ)
+	$(call linkfs,$(FS_SPYRO_OBJ))
+fox_freesce.elf: $(FSOBJ) $(FS_FOX_OBJ)
+	$(call linkfs,$(FS_FOX_OBJ))
 
 # freesce's ee-dvp-as is binutils 2.9 and has neither -stalls-pipeline nor
 # -no-fetching. Both are warning options -- hazard reporting, not codegen --
@@ -170,9 +318,9 @@ $(FSOBJDIR)/%.o: %.cpp
 	@mkdir -p $(@D)
 	$(FSCXX) $(FSFLAGS) $(FSINC) -c $< -o $@
 
-.PHONY: run freesce clean
+.PHONY: all run freesce chunks clean
 
 clean:
-	rm -rf build $(TARGET).elf $(TARGET)_freesce.elf
+	rm -rf build $(DEMOS:%=%.elf) $(DEMOS:%=%_freesce.elf)
 
 -include $(DEP)

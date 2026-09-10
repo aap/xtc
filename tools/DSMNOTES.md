@@ -136,3 +136,34 @@ microcode's `.dsm`) all agree byte for byte.  The `xtcPrimList` the
 scene fills in is just `{ pipe, primtype, size, list }` pointing at the
 linked symbol, and `xtcPrimListDraw` calls into it like into a recorded
 one.
+
+
+## Chunks
+
+`chunk.inc` and `chk.ld` turn a `.dsm` of data into an xtc chunk file
+(the format `common/chunk.c` loads); `xm2dsm.lua` writes a model,
+`xan2dsm.lua` an animation list.
+What was verified with both 2.9 toolchains:
+
+- A section that should reach the output needs the `"a"` flag:
+  `.section .chkreloc, "a"`.  Without it the linker drops the section
+  silently.
+- `.previous` swaps the current and the previous section, so a macro
+  can visit one other section and come back.  Two nested switches do
+  not come back.
+- `.data` in dvp-as is `.vudata`; the linker script collects both.
+- `SIZEOF(.section)` works in the script, arithmetic on two symbols
+  (`(a - b)/4`) is a parse error in this ld.
+- Macro arguments are split at whitespace as well as commas, so an
+  expression argument must have no spaces: `chkref 12, sym+192`.
+- Quotes are stripped from macro arguments; a macro that wants a string
+  puts them back: `.asciz "\cls"`.
+- `DMAref` works inside a macro; `\@` numbers the labels.
+- The address of a DMA ref tag is its second word, a plain byte address
+  (bit 31 is SPR), so the loader's "add the base to this word" fixup
+  serves tags and pointers alike.
+- `.float` in dvp-as rounds decimal to the nearest single exactly the
+  way C's `atof` plus an assignment does: `tools/xanchkdiff.py` checked
+  all 58211 keys of the fox's animation chunk against the text the
+  loader would otherwise parse and found no difference, and the PS2
+  renders the same frame from either to the pixel.

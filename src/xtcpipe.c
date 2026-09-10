@@ -360,6 +360,7 @@ xtcpSetMicrocode(xtcMicrocode *code)
 	mdmaCall(xtcState.list, code->code, 0);
 	mdmaCloseTag(xtcState.list);
 	currentCode = code;
+	xtcState.vuGen++;
 }
 
 // TODO: not quite happy with this

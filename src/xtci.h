@@ -129,6 +129,7 @@ struct xtcTexture {
 
 	uint64 tex0;
 	uint32 base;
+	uint32 epoch;	// of the GS memory it sits in; see xtctUpload
 	uint128 *pkts;
 };
 
@@ -332,6 +333,12 @@ struct xtcState
 	// for the skin pipeline, aligned so a ref can pick them up
 	Mat4 boneMatrices[64] __attribute__((aligned(16)));
 	int numBoneMatrices;
+
+	// bumped by the setters, so a pipeline can tell what changed since
+	// it last uploaded: the matrices and their constants, the lights
+	// and ambient, the material and colour selection.  vuGen bumps
+	// when the microcode changes, nothing in VU memory is trusted then
+	uint32 xformGen, lightGen, matGen, vuGen;
 };
 extern struct xtcState xtcState;
 

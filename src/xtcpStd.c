@@ -171,17 +171,39 @@ xtcpUploadStdLights8(xtcStdMaterial *m, uint32 colsel, uint32 *procs)
 
 extern xtcMicrocode xtcCodeStd, xtcCodeStdSkin;
 
+/*
+ * What the VU holds from the last upload, so a draw that changes
+ * nothing sends nothing: a model with ten materials costs one matrix
+ * and one light block, not ten.  The generations are xtcState's; vuGen
+ * covers the microcode switch, after which nothing up there is ours.
+ */
+static struct {
+	uint32 xformGen, lightGen, matGen, vuGen;
+	xtcMicrocode *code;
+	int primtype, clipping;
+	float scl[4];
+} last = { 0, 0, 0, 0, nil, -1, -1, { 0, 0, 0, 0 } };
+static uint32 combinedGen = ~0u;
+
 static mdmaTag *
 upload(xtcPipeline *pipe, xtcPrimType primtype)
 {
 	mdmaTag *tag;
 	mdmaList *l = xtcState.list;
 	xtcStdMaterial *m = &xtcState.stdMaterial;
+	int fresh = last.vuGen != xtcState.vuGen || last.code != pipe->code;
+	int xform = fresh || last.xformGen != xtcState.xformGen;
 
-	xtcpCombineMatrix();
-	// the light routines live at different addresses in each program
-	xtcpUploadStdLights8(m, xtcState.stdColSel,
-		pipe->code == &xtcCodeStdSkin ? xtcStdSkinLightProcs : xtcStdLightProcs);
+	if(combinedGen != xtcState.xformGen) {
+		xtcpCombineMatrix();
+		combinedGen = xtcState.xformGen;
+	}
+	// the light block is in object space, so it follows the world
+	// matrix as well as the lights and the material.  the light
+	// routines live at different addresses in each program
+	if(xform || last.lightGen != xtcState.lightGen || last.matGen != xtcState.matGen)
+		xtcpUploadStdLights8(m, xtcState.stdColSel,
+			pipe->code == &xtcCodeStdSkin ? xtcStdSkinLightProcs : xtcStdLightProcs);
 
 	// the skin pipe's bone matrices, ref'd straight from the state:
 	// once per draw, the batches never touch that part of VU memory
@@ -206,6 +228,23 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	}
 
 	xtcgFlushRegs(l);
+
+	// the rest is the matrices, the GIF tag for the prim type, the
+	// colour scale and the code switch: unchanged, unsent
+	if(!xform && last.primtype == (int)primtype && last.clipping == xtcState.clipping &&
+	   last.scl[0] == scl[0] && last.scl[1] == scl[1] && last.scl[2] == scl[2] && last.scl[3] == scl[3]) {
+		tag = mdmaNext(l, nil, 0);
+		mdmaCloseTag(l);
+		return tag;
+	}
+	last.xformGen = xtcState.xformGen;
+	last.lightGen = xtcState.lightGen;
+	last.matGen = xtcState.matGen;
+	last.vuGen = xtcState.vuGen;
+	last.code = pipe->code;
+	last.primtype = primtype;
+	last.clipping = xtcState.clipping;
+	last.scl[0] = scl[0]; last.scl[1] = scl[1]; last.scl[2] = scl[2]; last.scl[3] = scl[3];
 
 	tag = mdmaNext(l, nil, 13);
 		mdmaVifFlush(l, 0);

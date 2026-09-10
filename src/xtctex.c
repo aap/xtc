@@ -342,22 +342,37 @@ xtctTexBuildChains(xtcTexture *tex)
 	}
 }
 
+/*
+ * GS memory above the frame buffers is handed out to textures in order
+ * until it is full; then everything is forgotten and it starts over.
+ * That is safe because the chain is sequential: whatever a later
+ * upload overwrites was drawn before it.  So a texture is uploaded
+ * once as long as the set in use fits, which for a scene of small
+ * textures is always, and a set that does not fit degrades to the
+ * upload per draw we had before.
+ */
+static uint32 texNext;		// the next free block
+static uint32 texEpoch = 1;	// texture->epoch == this: resident at base
+
 void
 xtctUpload(xtcTexture *tex)
 {
 	mdmaList *l = xtcState.list;
+	uint32 nblocks = tex->numPages*BLK2PG;
 
-	/* poor man's texture cache */
-// TODO: we don't even need this yet because
-// we're only doing stupid PATH2 transfers so far
-	static int pingpong;
-	uint32 sz = (xtcgMemEnd - xtcgMemStart)/2;
-	sz = (sz+31)&~31;
-	uint32 base = xtcgMemStart + pingpong*sz;
-	pingpong = !pingpong;
-
-
-	tex->base = base;
+	if(tex->epoch == texEpoch)
+		return;
+	if(texNext < xtcgMemStart || texNext + nblocks > xtcgMemEnd) {
+		texNext = xtcgMemStart;
+		texEpoch++;
+		if(texNext + nblocks > xtcgMemEnd) {
+			printf("xtc: texture of %d pages does not fit in GS memory\n", tex->numPages);
+			return;
+		}
+	}
+	tex->base = texNext;
+	tex->epoch = texEpoch;
+	texNext += nblocks;
 
 	uint128 *pkt = tex->pkts;
 

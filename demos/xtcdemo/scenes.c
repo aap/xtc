@@ -1280,119 +1280,6 @@ sceneTube(void)
 }
 
 /*
- * Scene: fox -- the fox from the GL sketch, skinned on the VU.  Loads
- * samples/fox/fox.xm and fox_ps2.xan over host: on first use (the GL
- * viewer's -save writes them, tools/xancut.py cut the clips down), the
- * texture from fox/textures_ps2 (palettised for the GS).  dpad
- * left/right cycles the clips, cross pauses, square spins the fox,
- * lights as in the lights scene.
- */
-
-static xModel *fox;
-static xAnimList *foxAnims;
-static xAnimPlayer *foxPlayer;
-static int foxLoaded, foxAnim, foxSpin;
-static int foxPlaying = 1;
-static float foxAngle;
-static Vec3 foxCenter;
-
-/* a portrait light rig: a warm key from the front right and above, a
- * cool fill from behind on the left, the other slots off */
-static void
-setFoxLights(void)
-{
-	xtcLight l;
-	int i;
-
-	xtcSetAmbient(0.22f, 0.22f, 0.25f);
-	memset(&l, 0, sizeof(l));
-	l.type = XTC_LIGHT_DIRECT;
-	l.enabled = 1;
-	l.color = vec4(0.95f, 0.88f, 0.75f, 1.0f);
-	l.direction = v3normalized(vec3(-1.0f, 1.2f, -1.4f));
-	xtcSetLight(0, &l);
-	l.color = vec4(0.30f, 0.36f, 0.50f, 1.0f);
-	l.direction = v3normalized(vec3(1.0f, -0.6f, -0.3f));
-	xtcSetLight(1, &l);
-	l.enabled = 0;
-	for(i = 2; i < 8; i++)
-		xtcSetLight(i, &l);
-}
-
-static void
-foxSelectAnim(int n)
-{
-	if(foxPlayer == nil || foxAnims->numAnims == 0)
-		return;
-	foxAnim = (n + foxAnims->numAnims) % foxAnims->numAnims;
-	xAnimPlayerSetAnim(foxPlayer, &foxAnims->anims[foxAnim]);
-	printf("fox: %s\n", foxAnims->anims[foxAnim].name);
-}
-
-static void
-loadFox(void)
-{
-	Vec3 center;
-	float radius;
-
-	foxLoaded = 1;
-	texpath = "host:./samples/fox/textures_ps2";
-	fox = loadXModel("host:./samples/fox/fox.xm");
-	if(fox == nil) {
-		printf("fox: no model\n");
-		return;
-	}
-	buildXModel(fox);
-	xModelBoundingSphere(fox, &center, &radius);
-	/* a three quarter view from a little above, the fox centred */
-	foxCenter = center;
-	camDist = 2.2f*radius;
-	camPhi = 0.25f;
-	foxAngle = 1.3f;
-	printf("fox: %d meshes, %d bones, radius %g\n", fox->numMeshes,
-		fox->skel ? fox->skel->numBones : 0, radius);
-
-	foxAnims = loadXAnimList("host:./samples/fox/fox_ps2.xan");
-	if(foxAnims) {
-		printf("fox: %d animations\n", foxAnims->numAnims);
-		foxPlayer = xAnimPlayerCreate(fox);
-		foxSelectAnim(0);
-	}
-}
-
-static void
-sceneFox(void)
-{
-	Mat4 world;
-
-	if(!foxLoaded)
-		loadFox();
-	if(fox == nil)
-		return;
-
-	if(joy.press & JOY_RIGHT) foxSelectAnim(foxAnim+1);
-	if(joy.press & JOY_LEFT) foxSelectAnim(foxAnim-1);
-	if(joy.press & JOY_CROSS) foxPlaying = !foxPlaying;
-	if(joy.press & JOY_SQUARE) foxSpin = !foxSpin;
-
-	xtcEnable(XTC_CLIPPING);
-	xtcEnable(XTC_TEXTURE);
-	xtcTexFunc(XTC_RGBA, XTC_MODULATE);
-	setFoxLights();
-
-	if(foxPlayer) {
-		if(foxPlaying)
-			xAnimPlayerAddTime(foxPlayer, 1.0f/60.0f);
-		xAnimPlayerApply(foxPlayer);
-	}
-	if(foxSpin)
-		foxAngle += 0.3f/60.0f;
-	world = m4mul(m4rotZ(foxAngle), m4translate(-foxCenter.x, -foxCenter.y, -foxCenter.z));
-	xtcSetWorldMatrix(&world);
-	xModelDraw(fox, 0);
-}
-
-/*
  * Scene: littex — lit and textured: a recorded sphere with normals
  * and texcoords through the default pipeline, texture modulated.
  */
@@ -1735,7 +1622,6 @@ Scene scenes[] = {
 	{ "dsm", sceneDsm },
 	{ "skin", sceneSkin },
 	{ "tube", sceneTube },
-	{ "fox", sceneFox },
 	{ "littex", sceneLitTex },
 	{ "im2d", sceneIm2d },
 	{ "blend", sceneBlend },

@@ -388,29 +388,91 @@ createTexturePNG(const char *name, const uint8 *data, uint32 size)
 	return tex;
 }
 
+/*
+ * One xtcTexture per name.  Both file formats hold a texture reference
+ * per material, not per image, so the same PNG is asked for once per
+ * mesh -- 838 times for a level with 69 textures.  Without this that is
+ * 838 decodes, 838 copies in memory, and on the PS2 838 distinct
+ * textures, so xtcSetTexture's cache never hits and every mesh uploads
+ * its texture to the GS again.  Misses are cached too, so a missing
+ * texture warns once.
+ *
+ * Nothing frees textures, so sharing them is safe; the path is compared
+ * by pointer because texpath is set to a literal and only changes when a
+ * program switches to another model.
+ */
+static struct {
+	char *name;
+	const char *path;
+	xtcTexture *tex;
+} texCache[512];
+static int numTexCache;
+
 // looks for a PNG file in texpath
-xTexture*
-readTexture(const char *name)
+static xtcTexture*
+readTexturePNG(const char *name)
 {
-	xTexture *tex;
 	char abspath[1024];
 	uint8 *data;
 	uint32 size;
+	xtcTexture *tex;
 
-	tex = allocXTexture(name);
+	for(int i = 0; i < numTexCache; i++)
+		if(texCache[i].path == texpath &&
+		   strcmp(texCache[i].name, name) == 0)
+			return texCache[i].tex;
+
+	tex = nil;
 	for(int i = 0; extensions[i]; i++) {
 		// no snprintf in the PS2's libc; the path is small anyway
 		if(strlen(texpath) + strlen(name) + 8 > sizeof(abspath))
 			break;
 		sprintf(abspath, "%s/%s%s", texpath, name, extensions[i]);
 		if(readfile(abspath, &data, &size)) {
-			tex->tex = xtcTextureReadPNG(data, size);
+			tex = xtcTextureReadPNG(data, size);
 			free(data);
-			return tex;
+			break;
 		}
 	}
-	printf("warning: texture %s not found in %s\n", name, texpath);
+	if(tex == nil)
+		printf("warning: texture %s not found in %s\n", name, texpath);
+
+	if(numTexCache < (int)nelem(texCache)) {
+		int i = numTexCache++;
+		texCache[i].name = (char*)emalloc(strlen(name)+1);
+		strcpy(texCache[i].name, name);
+		texCache[i].path = texpath;
+		texCache[i].tex = tex;
+	}
 	return tex;
+}
+
+xTexture*
+readTexture(const char *name)
+{
+	xTexture *tex = allocXTexture(name);
+	tex->tex = readTexturePNG(name);
+	return tex;
+}
+
+// what a chunk's globals resolve to: the pipelines by their xtc.h
+// names, textures from texpath
+static void*
+xModelResolve(const char *cls, const char *name)
+{
+	static struct { const char *name; xtcPipeline **pipe; } pipes[] = {
+		{ "default", &defaultPipeline },
+		{ "std", &stdPipeline },
+		{ "skin", &skinPipeline },
+	};
+	if(strcmp(cls, "pipeline") == 0) {
+		for(uint32 i = 0; i < nelem(pipes); i++)
+			if(strcmp(pipes[i].name, name) == 0)
+				return *pipes[i].pipe;
+	} else if(strcmp(cls, "texture") == 0)
+		return readTexturePNG(name);
+	printf("warning: chunk wants unknown %s %s\n", cls, name);
+	return nil;
 }
 
 const char *texpath = ".";
@@ -818,7 +880,10 @@ loadXModel(const char *path)
 		printf("error: can't read %s\n", path);
 		return nil;
 	}
-	mdl = loadXModelText((char*)data, size);
+	if(isChunk(data, size))
+		mdl = (xModel*)loadChunkMem(data, size, xModelResolve);
+	else
+		mdl = loadXModelText((char*)data, size);
 	free(data);
 	return mdl;
 }
@@ -831,7 +896,8 @@ buildXModel(xModel *mdl)
 	for(int i = 0; i < mdl->numMeshes; i++) {
 		m = mdl->meshes[i];
 		g = m->geo;
-		if(g == nil) continue;
+		// a chunk from the assembler brings its own
+		if(g == nil || m->prims) continue;
 
 		// the PS2 bakes the pipeline into the list; GL picks it when drawing
 		xtcSetPipeline(m->skin ? skinPipeline : stdPipeline);
@@ -1038,7 +1104,13 @@ loadXAnimList(const char *path)
 		printf("error: can't read %s\n", path);
 		return nil;
 	}
-	al = loadXAnimListText((char*)data, size);
+	// like loadXModel: a chunk is a memory image and loads in one pass,
+	// the text has to be parsed a key at a time.  An animation chunk
+	// points at nothing outside itself, so there is no resolver.
+	if(isChunk(data, size))
+		al = (xAnimList*)loadChunkMem(data, size, nil);
+	else
+		al = loadXAnimListText((char*)data, size);
 	free(data);
 	return al;
 }
@@ -1057,10 +1129,11 @@ saveXMaterialChunk(ChunkData *chk, xMaterial *mat)
 		return;
 	registerPointer(chk, &mat->tex);
 	if(mat->tex) {
-		char *name = mat->tex->name;
-		// mega hack - pointer will be restored
-		mat->tex = (xTexture*)name;
-		registerBlock(chk, name, strlen(name)+1, 1);
+		xTexture *tex = mat->tex;
+		registerBlock(chk, tex, sizeof(*tex), PTR);
+		registerPointer(chk, &tex->name);
+		registerGlobal(chk, &tex->tex, "texture", tex->name);
+		registerBlock(chk, tex->name, strlen(tex->name)+1, 1);
 	}
 }
 
@@ -1195,17 +1268,7 @@ writeXModelChunk(FILE *f, xModel *mdl)
 xModel*
 loadXModelChunk(FILE *f)
 {
-	xModel *mdl;
-	xMaterial *mat;
-
-	mdl = (xModel*)loadChunk(f);
-	for(int i = 0; i < mdl->numMaterials; i++) {
-		mat = mdl->materials[i];
-		if(mat->tex)
-			mat->tex = readTexture((char*)mat->tex);
-	}
-
-	return mdl;
+	return (xModel*)loadChunk(f, xModelResolve);
 }
 
 
@@ -1262,5 +1325,5 @@ writeXAnimListChunk(FILE *f, xAnimList *alist)
 xAnimList*
 loadXAnimListChunk(FILE *f)
 {
-	return (xAnimList*)loadChunk(f);
+	return (xAnimList*)loadChunk(f, nil);
 }

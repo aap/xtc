@@ -30,10 +30,11 @@ struct sChunkHeader
 	u32 dataEnd;
 	u32 relocTab;
 	u32 numRelocs;
-	u32 globalTab;
-	u16 numClasses;
-	u16 numFuncs;
+	u32 globalTab;	// {u32 location; char cls[]; char name[];} word padded
+	u32 globalEnd;
 };
+
+#define CHUNK_IDENT 0x41424344	// 'ABCD'
 
 struct Block
 {
@@ -50,6 +51,15 @@ struct Pointer
 	int block;
 };
 
+typedef struct Global Global;
+struct Global
+{
+	void **ptr;
+	int block;
+	const char *cls;
+	const char *name;
+};
+
 struct ChunkData
 {
 	int numBlocks;
@@ -58,6 +68,8 @@ struct ChunkData
 	Pointer *pointers;
 	int numRelocations;
 	u32 *relocations;
+	int numGlobals;
+	Global *globals;
 };
 
 ChunkData*
@@ -71,6 +83,8 @@ makeChunkData(void)
 	chk->pointers = nil;
 	chk->numRelocations = 0;
 	chk->relocations = nil;
+	chk->numGlobals = 0;
+	chk->globals = nil;
 	return chk;
 }
 
@@ -80,6 +94,7 @@ freeChunkData(ChunkData *chk)
 	free(chk->blocks);
 	free(chk->pointers);
 	free(chk->relocations);
+	free(chk->globals);
 	free(chk);
 }
 
@@ -159,6 +174,28 @@ registerPointer(ChunkData *chk, void *ptr)
 	return 1;
 }
 
+// a pointer to something outside the chunk, written as 0 and resolved
+// by class and name at load time.  like registerPointer, the field has
+// to be in the block registered last.
+void
+registerGlobal(ChunkData *chk, void *ptr, const char *cls, const char *name)
+{
+	Global *g;
+	Block *b;
+
+	chk->numGlobals++;
+	chk->globals = (Global*)realloc(chk->globals, chk->numGlobals*sizeof(Global));
+	assert(chk->globals);
+	g = &chk->globals[chk->numGlobals-1];
+	g->ptr = (void**)ptr;
+	b = &chk->blocks[chk->numBlocks-1];
+	assert((void*)ptr >= b->base);
+	assert((void*)ptr < b->end);
+	g->block = chk->numBlocks-1;
+	g->cls = cls;
+	g->name = name;
+}
+
 static Block*
 findBlockPointingTo(ChunkData *chk, void *ptr)
 {
@@ -205,9 +242,10 @@ void
 writeChunk(ChunkData *chk, FILE *f)
 {
 	int i;
-	size_t totalSize, off;
+	size_t totalSize, off, globalSize;
 	u8 *buffer;
 	sChunkHeader *header;
+	u32 fileoff;
 
 	totalSize = sizeof(sChunkHeader);
 	for(i = 0; i < chk->numBlocks; i++){
@@ -236,39 +274,112 @@ writeChunk(ChunkData *chk, FILE *f)
 
 	restorePointers(chk);
 
-	header->ident = 'ABCD';
+	// the globals' fields hold nothing the file can use
+	globalSize = 0;
+	for(i = 0; i < chk->numGlobals; i++){
+		Global *g = &chk->globals[i];
+		Block *b = &chk->blocks[g->block];
+		fileoff = (u32)((uintptr)g->ptr - (uintptr)b->base + b->offset);
+		memset(&buffer[fileoff], 0, sizeof(void*));
+		globalSize += (4 + strlen(g->cls)+1 + strlen(g->name)+1 + 3) & ~3;
+	}
+
+	header->ident = CHUNK_IDENT;
 	header->shrink = 0;
-	header->fileEnd = totalSize + sizeof(u32)*chk->numRelocations;
 	header->dataEnd = totalSize;
 	header->relocTab = totalSize;
 	header->numRelocs = chk->numRelocations;
+	header->globalTab = totalSize + sizeof(u32)*chk->numRelocations;
+	header->globalEnd = header->globalTab + globalSize;
+	header->fileEnd = header->globalEnd;
 
 	fwrite(buffer, 1, totalSize, f);
 	fwrite(chk->relocations, sizeof(u32), chk->numRelocations, f);
+	for(i = 0; i < chk->numGlobals; i++){
+		static const u8 pad[4] = { 0, 0, 0, 0 };
+		Global *g = &chk->globals[i];
+		Block *b = &chk->blocks[g->block];
+		size_t n;
+		fileoff = (u32)((uintptr)g->ptr - (uintptr)b->base + b->offset);
+		fwrite(&fileoff, sizeof(u32), 1, f);
+		fwrite(g->cls, 1, strlen(g->cls)+1, f);
+		fwrite(g->name, 1, strlen(g->name)+1, f);
+		n = (4 + strlen(g->cls)+1 + strlen(g->name)+1);
+		fwrite(pad, 1, ((n + 3) & ~3) - n, f);
+	}
 	free(buffer);
 }
 
-void*
-loadChunk(FILE *f)
+int
+isChunk(const uint8 *data, uint32 size)
 {
-	sChunkHeader header;
+	return size >= sizeof(sChunkHeader) &&
+		((const sChunkHeader*)data)->ident == CHUNK_IDENT;
+}
+
+void*
+loadChunkMem(const uint8 *file, uint32 size, ChunkResolver resolve)
+{
+	const sChunkHeader *header = (const sChunkHeader*)file;
 	u8 *data;
-	u32 *reloc;
+	const u32 *reloc;
+	const u8 *p, *end;
+	u32 dataSize, loc;
+	const char *cls, *name;
+	uintptr off;
+	int i;
 
-	fread(&header, 1, sizeof(header), f);
-//printf("%08X %08X %08X %08X\n", header.ident, header.shrink, header.fileEnd, header.dataEnd);
-//printf("%08X %08X %08X %04X %04X\n", header.relocTab, header.numRelocs, header.globalTab, header.numClasses, header.numFuncs);
-	data = (u8*)malloc(header.dataEnd - sizeof(header));
-	reloc = (u32*)malloc(header.numRelocs*sizeof(u32));
-	fread(data, 1, header.dataEnd - sizeof(header), f);
-	fread(reloc, 1, header.numRelocs*sizeof(u32), f);
+	if(!isChunk(file, size) || header->fileEnd > size){
+		printf("loadChunk: not a chunk\n");
+		return nil;
+	}
 
-	uintptr off = (uintptr)data - sizeof(header);
-	for(int i = 0; i < header.numRelocs; i++)
-		*(uintptr*)&data[reloc[i]-sizeof(header)] += off;
-//	for(int i = 0; i < header.numRelocs; i++)
-//		printf("%X %p\n", reloc[i], *(void**)&data[reloc[i]-sizeof(header)]);
-	free(reloc);
+	// the data has DMA chains in it, which want qword alignment; the
+	// blocks are laid out for that relative to the start of the file
+	dataSize = header->dataEnd - sizeof(sChunkHeader);
+	data = (u8*)malloc(dataSize + 16);
+	data = (u8*)(((uintptr)data + 15) & ~15);
+	memcpy(data, file + sizeof(sChunkHeader), dataSize);
 
+	// offsets in the file become addresses
+	off = (uintptr)data - sizeof(sChunkHeader);
+	reloc = (const u32*)(file + header->relocTab);
+	for(i = 0; i < (int)header->numRelocs; i++)
+		*(uintptr*)&data[reloc[i]-sizeof(sChunkHeader)] += off;
+
+	// and the globals get looked up
+	p = file + header->globalTab;
+	end = file + header->globalEnd;
+	while(p + 4 <= end){
+		memcpy(&loc, p, 4);
+		cls = (const char*)p + 4;
+		name = cls + strlen(cls) + 1;
+		p = (const u8*)name + strlen(name) + 1;
+		p = file + (((p - file) + 3) & ~3);
+		*(void**)&data[loc-sizeof(sChunkHeader)] = resolve ? resolve(cls, name) : nil;
+		if(resolve == nil)
+			printf("loadChunk: no resolver for %s %s\n", cls, name);
+	}
+
+	return data;
+}
+
+void*
+loadChunk(FILE *f, ChunkResolver resolve)
+{
+	u8 *file;
+	long size;
+	void *data;
+
+	fseek(f, 0, SEEK_END);
+	size = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	file = (u8*)malloc(size);
+	if(fread(file, 1, size, f) != (size_t)size){
+		free(file);
+		return nil;
+	}
+	data = loadChunkMem(file, (u32)size, resolve);
+	free(file);
 	return data;
 }
