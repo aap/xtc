@@ -77,6 +77,10 @@
 .equ codeSwitch,	STD_PIPELINE0
 .equ outBufs,		STD_OUTBUFS
 .equ clipConstI,	STD_CLIPCONSTI
+;; per prim list, unpacked by the list itself: pos = q*scale + off, uv = q*scale
+.equ unXYZScale,	STD_UNXYZSCALE
+.equ unXYZOff,		STD_UNXYZOFF
+.equ unUVScale,		STD_UNUVSCALE
 
 
 #define UN_VERTEX(n,r) 0 + (n)*numInAttribs(r)

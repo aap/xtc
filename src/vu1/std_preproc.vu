@@ -37,12 +37,8 @@ PProcV32T32C8N8_Loop:
 	nop				jr vi15
 	nop				nop
 
-;; sketch for decompression
-
-.equ unXYZScale,	0x3f7
-.equ unXYZOff,		0x3f8
-.equ unUVScale,		0x3f9
-
+;; 16 bit positions and texcoords (V4_16, V2_16, signed), dequantized with
+;; the constants the list brings; colours and normals as in the V32 version
 PreprocessV16T16C8N8:
 .if 1
 	nop				loi 0.007874015748031496	; normal scale
@@ -56,17 +52,18 @@ PProcV16T16C8N8_Loop:
 	nop				lq vf03,UN_NORMAL(0,vi02)
 	nop				lq vf04,UN_RGBA(0,vi02)
 
-	mul.xyz vf01,vf01,vf05		iadd vi04,vi02,vi00
-	mul.xyz vf02,vf02,vf07		iaddiu vi02,vi02,numInAttribs
+	itof0 vf01,vf01			iadd vi04,vi02,vi00		; the unpack leaves integers
+	itof0 vf02,vf02			iaddiu vi02,vi02,numInAttribs
 	itof0 vf03,vf03			nop
 	itof0 vf04,vf04			nop
+	mul.xyz vf01,vf01,vf05		nop
+	mul.xy vf02,vf02,vf07		nop
+	muli.xyz vf03,vf03,i		sq vf04,UN_RGBA(0,vi04)
 	add.xyz vf01,vf01,vf06		nop
 	nop				sq vf02,UN_UV(0,vi04)
-	muli.xyz vf03,vf03,i		nop
-	nop				sq vf04,UN_RGBA(0,vi04)
-	nop				sq vf01,UN_VERTEX(0,vi04)
-	nop				ibne vi04,vi03,PProcV16T16C8N8_Loop
 	nop				sq vf03,UN_NORMAL(0,vi04)
+	nop				ibne vi04,vi03,PProcV16T16C8N8_Loop
+	nop				sq vf01,UN_VERTEX(0,vi04)
 .else
 	nop				iaddiu vi02,vi02,4*numInAttribs
 	nop				loi 0.007874015748031496	; normal scale

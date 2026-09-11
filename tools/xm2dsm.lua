@@ -3,7 +3,7 @@
 xm2dsm.lua -- an .xm model as dvp-as source, to be linked into a chunk.
 
 	lua tools/xm2dsm.lua [-pipes src/vu1] [-name SYM] [-strips model.strips]
-	                     [-nogeo] model.xm > model.dsm
+	                     [-nogeo] [-quant] model.xm > model.dsm
 	ee-dvp-as -Itools model.dsm -o model.o
 	ee-ld -T tools/chk.ld -o model.chk model.o
 
@@ -30,6 +30,7 @@ local symName = nil
 local path = nil
 local stripsPath = nil
 local noGeo = false
+local quantFlag = false	-- -quant: 16 bit positions and texcoords
 
 local args = {...}
 local i = 1
@@ -39,11 +40,12 @@ while i <= #args do
 	elseif a == "-name" then symName = args[i+1]; i = i + 2
 	elseif a == "-strips" then stripsPath = args[i+1]; i = i + 2
 	elseif a == "-nogeo" then noGeo = true; i = i + 1
+	elseif a == "-quant" then quantFlag = true; i = i + 1
 	elseif a:sub(1, 1) == "-" then error("unknown option " .. a)
 	else path = a; i = i + 1 end
 end
 if not path then
-	io.stderr:write("usage: xm2dsm.lua [-pipes DIR] [-name SYM] [-strips F] [-nogeo] model.xm > model.dsm\n")
+	io.stderr:write("usage: xm2dsm.lua [-pipes DIR] [-name SYM] [-strips F] [-nogeo] [-quant] model.xm > model.dsm\n")
 	os.exit(1)
 end
 if not symName then
@@ -644,6 +646,20 @@ local function main()
 		std = readPipeline(pipesDir .. "/stdPipe.dsm", "std_"),
 		skin = readPipeline(pipesDir .. "/stdPipe.dsm", "skin_"),
 	}
+-- -quant: the data decides, not the pipe's descriptor.  positions go
+-- V4_16, texcoords V2_16, same slots (an unpack fills a qword per vertex
+-- whatever it reads), and the list carries its dequantization constants
+-- and asks for the dequantizing preprocess through its stage bits.  the
+-- skin preprocess does not dequantize yet, so skinned meshes stay V32.
+local function quantizePipe(pipe)
+	for _, at in ipairs(pipe.attribs) do
+		if at.usage == "pos" then at.cmd, at.size, at.name = FORMATS.UNPACK_V4_16[1], 8, "V4_16"
+		elseif at.usage == "uv" then at.cmd, at.size, at.name = FORMATS.UNPACK_V2_16[1], 4, "V2_16" end
+	end
+	assert(pipe.unAddr, pipe.file .. ": no dequantization constants (unXYZScale) for -quant")
+	pipe.quant = true
+end
+if quantFlag then quantizePipe(pipes.std) end
 	local mdl = readXm(path)
 	local strips = stripsPath and readStrips(stripsPath) or {}
 	numberNodes(mdl.root)

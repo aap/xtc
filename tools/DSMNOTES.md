@@ -181,12 +181,18 @@ clip paths; everything else the layout touches is data.
 
 ## Quantized input
 
-`xm2dsm.lua` follows the microcode's input descriptor: a position of
-`UNPACK_V4_16`/`V3_16` and a texcoord of `UNPACK_V2_16` come out as
-signed 16 bit integers, and the prim list then starts with an unpack of
-three qwords to the address the microcode names with `.equ unXYZScale`,
-`unXYZOff`, `unUVScale` (in that order): `pos = q*xyzScale + xyzOff`,
-`uv = q*uvScale`.  The offset is the centre of the list's bounds and the
+`xm2dsm.lua -quant` writes positions as `V4_16` and texcoords as
+`V2_16`, signed 16 bit integers in the same qword slots (the pipe's
+descriptor stays V32 for the runtime lists; a descriptor that already
+names 16 bit formats quantizes as well).  The prim list then starts
+with an unpack of three qwords to the address the microcode names with
+`.equ unXYZScale`, `unXYZOff`, `unUVScale` (in that order, `STD_UN*` in
+std_layout.h): `pos = q*xyzScale + xyzOff`, `uv = q*uvScale`, and its
+stage bits ask for `PreprocessV16T16C8N8`, which converts the integers
+and applies the constants.  Skinned meshes stay V32 until the skin
+preprocess dequantizes too.  `CHKFLAGS=-quant` builds the chunks that
+way; Spyro level 0 shrinks from 1.86 to 1.49 MB and renders within
+quantization noise of the V32 build.  The offset is the centre of the list's bounds and the
 scale its half range over 32767 per axis; texcoords keep their origin.
 The fox comes out within half a step everywhere (8e-6 of a 1.05 extent,
 1.5e-5 in uv) and its chunk shrinks from 795 to 681 KB.  `vumap.lua`
