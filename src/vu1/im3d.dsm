@@ -19,6 +19,7 @@
 .equ clipVertLimitTS, (clipVertCount-15)	;;; TODO: this crashes when i set it to -9 as it should be
 
 .include "defines.inc"
+.include "rw_layout.inc"
 
 #define IN_VERTEX(n,r) 0 + (n)*numInAttribs(r)
 #define IN_UV(n,r) 1 + (n)*numInAttribs(r)
@@ -144,6 +145,8 @@ xtcCodeNolight:
 .word (((vertCount&~3)-1) & ~3)+1	; line strip
 .word ((vertCount/3) & ~3)*3	; tri list
 .word (((vertCount&~3)-2) & ~3)+2	; tri strip
+; clipConstI, the std program's; the layout is in the code here
+.word clipBuf, clipVertLimitTL, clipVertLimitTS, 0
 ; code switch - indexed by prim type
 .word Process, outBuf1, outBuf2, 0
 .word PointCull, outBuf1, outBuf2, 0		; XTC_POINTS

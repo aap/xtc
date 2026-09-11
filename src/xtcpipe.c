@@ -355,12 +355,16 @@ static xtcMicrocode *currentCode;
 void
 xtcpSetMicrocode(xtcMicrocode *code)
 {
+	// two layouts of one program share the image: no upload between
+	// them, and the constants up there stay valid
 	if(code == currentCode)
 		return;
-	mdmaCall(xtcState.list, code->code, 0);
-	mdmaCloseTag(xtcState.list);
+	if(currentCode == nil || code->code != currentCode->code) {
+		mdmaCall(xtcState.list, code->code, 0);
+		mdmaCloseTag(xtcState.list);
+		xtcState.vuGen++;
+	}
 	currentCode = code;
-	xtcState.vuGen++;
 }
 
 // TODO: not quite happy with this
@@ -413,7 +417,7 @@ xtcPrimListDraw(xtcPrimList *pl)
 	xtcpSetMicrocode(pipe->code);
 	xtcpUseTexture(xtcState.tex);
 
-	mdmaTag *skiptag = pl->pipe->upload(pl->pipe, pl->primtype);
+	mdmaTag *skiptag = pl->pipe->upload(pl->pipe, pl->primtype, pl->stages);
 	// nothing inline to skip here — the vertices are in the prim list's own
 	// buffer — so the chain continues immediately and it is really a cnt
 	mdmaSetTarget(xtcState.list, skiptag, mdmaHere(xtcState.list));
@@ -435,7 +439,7 @@ xtcBegin(xtcPrimType prim)
 	if(curList == nil) {
 		xtcpSetMicrocode(pipe->code);
 		xtcpUseTexture(xtcState.tex);
-		imstate.skiptag = xtcState.pipe->upload(xtcState.pipe, prim);
+		imstate.skiptag = xtcState.pipe->upload(xtcState.pipe, prim, 0);
 	}
 
 	// the vertices go straight into the chain here; the upload tag will be

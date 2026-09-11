@@ -5,8 +5,9 @@
 #include <libgraph.h>
 
 static mdmaTag *
-upload(xtcPipeline *pipe, xtcPrimType primtype)
+upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 {
+	(void)stages;
 	mdmaTag *tag;
 	mdmaList *l = xtcState.list;
 

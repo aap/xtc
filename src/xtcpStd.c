@@ -1,12 +1,32 @@
 #include "xtci.h"
 #include "xtcpipe.h"
+#include "std_layout.h"
+
+/*
+ * STD_LAYOUT2: the upload writes the layout of std_layout.h, which the
+ * std microcode reads through its equates; 0 is the RenderWare style
+ * layout of xtcpipe.h, the way it was before 2026-09-11.
+ */
+#ifndef STD_LAYOUT2
+#define STD_LAYOUT2 1
+#endif
+/*
+ * STD_PIPELINE_CHAIN: the pipeline qwords hold the chain of stage
+ * addresses the microcode walks (std_layout.h), from the xtcStdStages
+ * tables; 0 keeps the code switch triple in the first qword, which is
+ * what the microcode reads until it walks the chain.
+ */
+#ifndef STD_PIPELINE_CHAIN
+#define STD_PIPELINE_CHAIN 1
+#endif
+
+extern uint32 xtcStdStages[STD_NUMSTAGES];
 
 #include <stdio.h>
 #include <string.h>
 #include <libgraph.h>
 
 extern uint32 xtcStdLightProcs[5];
-extern uint32 xtcStdSkinLightProcs[5];
 
 int
 getLightBlock(uint128 *lightDirs, Vec4 *lightCols)
@@ -94,6 +114,8 @@ printf("\n\n");
 	return ndir;
 }
 
+static int lightStage;	// the routine the last light upload picked, as xtcStdLightProcs' index
+
 void
 xtcpUploadStdLights8(xtcStdMaterial *m, uint32 colsel, uint32 *procs)
 {
@@ -129,24 +151,53 @@ xtcpUploadStdLights8(xtcStdMaterial *m, uint32 colsel, uint32 *procs)
 		}
 
 	uint32 *sel = (uint32*)&A.w;
+	int l8 = ndir>4;
 	if(ndir == 0)
-		*sel = procs[1]>>3;	// no directionals
+		lightStage = 1;		// no directionals
 	else if(colsel & XTC_DIFFUSE)
-		*sel = procs[3]>>3;	// no 8-light code yet
+		lightStage = 3;		// no 8-light code yet
 	else
-		*sel = procs[ndir>4 ? 4 : 2]>>3;
+		lightStage = l8 ? 4 : 2;
+	*sel = procs[lightStage]>>3;
 
 	mdmaList *list = xtcState.list;
 
+#if STD_LAYOUT2
+	// the base and the vertex factor lead, the clamp is in the
+	// transform block; then the lights, 4 or 8 of them
+	int lsz = STD_LIGHTS4_SIZE;
+	if(l8) lsz += 7;
+	mdmaCnt(list, lsz);
+		mdmaVifStCycl(list, 4,4, 0);
+		mdmaBeginUnpack(list, STD_LIGHTS, lsz, UNPACK_V4_32, 0);
+		mdmaAddF(list, A.x, A.y, A.z, A.w);			// lightBase
+		mdmaAddF(list, B.x, B.y, B.z, B.w);			// vertFactor
+		mdmaAdd(list, lightDirs[0]);
+		mdmaAdd(list, lightDirs[1]);
+		mdmaAdd(list, lightDirs[2]);
+		mdmaAddF(list, D[0].x, D[0].y, D[0].z, D[0].w);
+		mdmaAddF(list, D[1].x, D[1].y, D[1].z, D[1].w);
+		mdmaAddF(list, D[2].x, D[2].y, D[2].z, D[2].w);
+		mdmaAddF(list, D[3].x, D[3].y, D[3].z, D[3].w);
+		if(l8) {
+			mdmaAdd(list, lightDirs[4]);
+			mdmaAdd(list, lightDirs[5]);
+			mdmaAdd(list, lightDirs[6]);
+			mdmaAddF(list, D[4].x, D[4].y, D[4].z, D[4].w);
+			mdmaAddF(list, D[5].x, D[5].y, D[5].z, D[5].w);
+			mdmaAddF(list, D[6].x, D[6].y, D[6].z, D[6].w);
+			mdmaAddF(list, D[7].x, D[7].y, D[7].z, D[7].w);
+		}
+		mdmaEndUnpack(list);
+	mdmaCloseTag(list);
+	return;
+#else
 	mdmaCnt(list, 2+16);
 		mdmaVifStCycl(list, 4,4, 0);
 		mdmaBeginUnpack(list, vuLight, 2+16, UNPACK_V4_32, 0);
 
 		mdmaAddF(list, xtcState.colorMod.clamp.x, xtcState.colorMod.clamp.y,
 			xtcState.colorMod.clamp.z, xtcState.colorMod.clamp.w);	// clamp
-//		mdmaAddF(list, 1.0f, 1.0f, 1.0f, 1.0f);			// vertFactor
-//		mdmaAddF(list, 0.3f, 0.3f, 0.3f, 1.0f);			// vertFactor
-//		mdmaAddF(list, 0.0f, 0.0f, 0.0f, 1.0f);			// vertFactor
 		mdmaAddF(list, B.x, B.y, B.z, B.w);			// vertFactor
 
 		mdmaAdd(list, lightDirs[0]);
@@ -165,6 +216,7 @@ xtcpUploadStdLights8(xtcStdMaterial *m, uint32 colsel, uint32 *procs)
 		mdmaAddF(list, D[5].x, D[5].y, D[5].z, D[5].w);
 		mdmaAddF(list, D[6].x, D[6].y, D[6].z, D[6].w);
 		mdmaAddF(list, D[7].x, D[7].y, D[7].z, D[7].w);
+#endif
 
 		mdmaEndUnpack(list);
 	mdmaCloseTag(list);
@@ -187,7 +239,7 @@ static struct {
 static uint32 combinedGen = ~0u;
 
 static mdmaTag *
-upload(xtcPipeline *pipe, xtcPrimType primtype)
+upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 {
 	mdmaTag *tag;
 	mdmaList *l = xtcState.list;
@@ -203,8 +255,7 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	// matrix as well as the lights and the material.  the light
 	// routines live at different addresses in each program
 	if(xform || last.lightGen != xtcState.lightGen || last.matGen != xtcState.matGen)
-		xtcpUploadStdLights8(m, xtcState.stdColSel,
-			pipe->code == &xtcCodeStdSkin ? xtcStdSkinLightProcs : xtcStdLightProcs);
+		xtcpUploadStdLights8(m, xtcState.stdColSel, xtcStdLightProcs);
 
 	// the skin pipe's bone matrices, ref'd straight from the state:
 	// once per draw, the batches never touch that part of VU memory
@@ -212,7 +263,11 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 		int n = 4*xtcState.numBoneMatrices;
 		mdmaRef(l, xtcState.boneMatrices, n);
 			mdmaVifStCycl(l, 4,4, 0);
+#if STD_LAYOUT2
+			mdmaVifUnpack(l, STD_BONEMATRICES, n, UNPACK_V4_32, 0);
+#else
 			mdmaVifUnpack(l, vuBoneMatrices, n, UNPACK_V4_32, 0);
+#endif
 	}
 
 	// TODO: want TME bit more elegantly
@@ -246,6 +301,88 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	last.clipping = xtcState.clipping;
 	last.scl[0] = scl[0]; last.scl[1] = scl[1]; last.scl[2] = scl[2]; last.scl[3] = scl[3];
 
+#if STD_LAYOUT2
+	// one block: the matrices and their constants, the GIF tag, and
+	// what the GS gets; then the pipeline.  clipConstI is not ours,
+	// the microcode's own chain brings it with the mpg
+	tag = mdmaNext(l, nil, MDMA_AUTO);
+		mdmaVifFlush(l, 0);
+		mdmaVifFlush(l, 0);
+		mdmaVifBase(l, 0, 0);
+		mdmaVifOffset(l, pipe->code->offset, 0);
+		if(fresh) {
+			// the layout's clip constants, with its buffers below
+			mdmaVifStCycl(l, 4,4, 0);
+			mdmaBeginUnpack(l, STD_CLIPCONSTI, 1, UNPACK_V4_32, 0);
+				mdmaAddW(l, pipe->code->clipConsts[0], pipe->code->clipConsts[1],
+					pipe->code->clipConsts[2], pipe->code->clipConsts[3]);
+			mdmaEndUnpack(l);
+			mdmaVifNop(l, 0);
+			mdmaVifNop(l, 0);
+		}
+		mdmaVifStCycl(l, 4,4, 0);
+		mdmaBeginUnpack(l, STD_XFORM, STD_XFORM_SIZE, UNPACK_V4_32, 0);
+			mdmaAdd(l, xtcState.matrix0);
+			mdmaAdd(l, xtcState.matrix1);
+			mdmaAdd(l, xtcState.matrix2);
+			mdmaAdd(l, xtcState.matrix3);
+			mdmaAdd(l, xtcState.xyzwScale);
+			mdmaAdd(l, xtcState.xyzwOffset);
+			mdmaAdd(l, xtcState.clipConsts);			// clipConstF
+			mdmaGifTag(l, 0, 1, 1,primtype, GIF_PACKED, 3, xtcpVertRegs);
+			mdmaAddF(l, xtcState.colorMod.clamp.x, xtcState.colorMod.clamp.y,
+				xtcState.colorMod.clamp.z, xtcState.colorMod.clamp.w);
+			mdmaAddF(l, scl[0], scl[1], scl[2], scl[3]);
+		mdmaEndUnpack(l);
+
+#if STD_PIPELINE_CHAIN
+		// the pipeline: what this draw runs, in order.  the data says
+		// how it arrives (compressed, skinned), the state what happens
+		// to it (the light routine, clipping), the prim type how it
+		// leaves
+		{
+			int skin = (stages & XTCP_ST_SKIN) || pipe->code == &xtcCodeStdSkin;
+			uint32 *st = xtcStdStages;
+			uint32 chain[STD_PIPELINE_SIZE*4];
+			int n = 0, i;
+			// the rest is End: a jalr there ends the batch, a jalr to
+			// 0 would restart the program
+			for(i = 0; i < STD_PIPELINE_SIZE*4; i++)
+				chain[i] = st[STD_STAGE_END];
+			chain[n++] = st[skin ? STD_STAGE_PREP_SKIN_V32T32C8N8 :
+				(stages & XTCP_ST_DECOMP16) ? STD_STAGE_PREP_V16T16C8N8 :
+				STD_STAGE_PREP_V32T32C8N8];
+			chain[n++] = st[STD_STAGE_LT_WHITEV + lightStage];
+			if(!xtcState.clipping) chain[n++] = st[STD_STAGE_PROCESS];
+			else chain[n++] = st[primtype == XTC_TRILIST ? STD_STAGE_TLCLIP : STD_STAGE_TSCLIP];
+			for(i = 0; i < STD_PIPELINE_SIZE*4; i++)
+				chain[i] >>= 3;
+			// the chain, and the output buffers the submit stage flips
+			// between: the pair of the mode, from the footer's switch
+			// table, right after the chain so it is one unpack
+			mdmaVifNop(l, 0);
+			mdmaVifNop(l, 0);
+			mdmaVifStCycl(l, 4,4, 0);
+			mdmaBeginUnpack(l, STD_PIPELINE, STD_PIPELINE_SIZE + 1, UNPACK_V4_32, 0);
+				for(i = 0; i < STD_PIPELINE_SIZE; i++)
+					mdmaAddW(l, chain[4*i], chain[4*i+1], chain[4*i+2], chain[4*i+3]);
+				mdmaAddW(l, swtch->buf1, swtch->buf2, 0, 0);		// STD_OUTBUFS
+			mdmaEndUnpack(l);
+		}
+#else
+		// the pipeline: the code switch as it is, in the first qword;
+		// the stage chain replaces it when the microcode walks one
+		mdmaVifNop(l, 0);
+		mdmaVifNop(l, 0);
+		mdmaVifStCycl(l, 4,4, 0);
+		mdmaBeginUnpack(l, STD_PIPELINE, 1, UNPACK_V4_32, 0);
+			mdmaAddW(l, swtch->process>>3, swtch->buf1, swtch->buf2, 0);
+		mdmaEndUnpack(l);
+#endif
+	mdmaCloseTag(l);
+
+	return tag;
+#else
 	tag = mdmaNext(l, nil, 13);
 		mdmaVifFlush(l, 0);
 		mdmaVifFlush(l, 0);
@@ -284,6 +421,7 @@ upload(xtcPipeline *pipe, xtcPrimType primtype)
 	mdmaCloseTag(l);
 
 	return tag;
+#endif
 }
 
 static xtcPipeline pipe = {

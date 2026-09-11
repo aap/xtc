@@ -1,42 +1,95 @@
-.equ vertexTop, 0x3d0
+;; stdPipe.dsm -- the std pipeline: one resident program, the layouts
+;; of its VU memory as data.  What the code needs to know is the record
+;; it works on (numInAttribs etc.) and the constants of std_layout.h;
+;; the sizes of the double buffered input and output, which follow from
+;; how much memory is left below the constants (vertexTop), are a
+;; layout, and there are two: std, with the buffers up to the light
+;; block, and skin, with the bone matrices carved out below them.  Each
+;; layout is a footer (xtcMicrocode in src/xtci.h) the upload code reads
+;; and sends what the program needs per draw: the double buffer's base
+;; and offset, the output buffers, clipConstI.  The code itself never
+;; assembles a layout number into an instruction: tools/vudiff.sh
+;; proves it, tools/vumap.lua draws it.
+
+.include "defines.inc"
+#include "std_layout.h"
+
+;; the record: the input as the stages leave it for the transform
 .equ numInAttribs, 4
 .equ numOutAttribs, 3
 .equ numOutBuf, 2
-.equ vertCount, ((vertexTop-numOutBuf)/(numInAttribs*2+numOutAttribs*numOutBuf))
-.equ offset, (vertCount*numInAttribs)
-.equ outBuf1, (2*offset) 
-;.equ outSize, ((vertexTop-outBuf1-numOutBuf)/numOutBuf)
-.equ outSize, (1 + vertCount*numOutAttribs)
-.equ outBuf2, (outBuf1+outSize) 
+;; the skin record before its preprocess repacks it: pos, uv, rgba, normal, skin data
+.equ numSkinAttribs, 5
 
-.equ clipVertCount, ((vertexTop-outBuf1-numOutBuf)/(numInAttribs+numOutAttribs*numOutBuf))
-.equ clipOutSize, (1 + clipVertCount*numOutAttribs)
-.equ clipOutBuf2, (outBuf1+clipOutSize)
-.equ clipBuf, (clipOutBuf2+clipOutSize)	
-
+;; the std layout: 4 attributes unpacked, the buffers reach the light block
+.equ std_vertexTop, STD_LIGHTS
+.equ std_numUnpackAttribs, 4
+.equ std_vertCount, ((std_vertexTop-numOutBuf)/(std_numUnpackAttribs*2+numOutAttribs*numOutBuf))
+.equ std_offset, (std_vertCount*std_numUnpackAttribs)
+.equ std_outBuf1, (2*std_offset)
+.equ std_outSize, (1 + std_vertCount*numOutAttribs)
+.equ std_outBuf2, (std_outBuf1+std_outSize)
+.equ std_clipVertCount, ((std_vertexTop-std_outBuf1-numOutBuf)/(std_numUnpackAttribs+numOutAttribs*numOutBuf))
+.equ std_clipOutSize, (1 + std_clipVertCount*numOutAttribs)
+.equ std_clipOutBuf2, (std_outBuf1+std_clipOutSize)
+.equ std_clipBuf, (std_clipOutBuf2+std_clipOutSize)
 ; up to 9 verts => 7 tris per poly in worst case, a lot for lists unfortunately
-.equ clipVertLimitTL, (clipVertCount-21)
-.equ clipVertLimitTS, (clipVertCount-15)	;;; TODO: this crashes when i set it to -9 as it should be
+.equ std_clipVertLimitTL, (std_clipVertCount-21)
+.equ std_clipVertLimitTS, (std_clipVertCount-15)	;;; TODO: this crashes when i set it to -9 as it should be
 
-.include "defines.inc"
+;; the skin layout: 5 attributes unpacked, the buffers stop at the bone matrices
+.equ skin_vertexTop, STD_BONEMATRICES
+.equ skin_numUnpackAttribs, numSkinAttribs
+.equ skin_vertCount, ((skin_vertexTop-numOutBuf)/(skin_numUnpackAttribs*2+numOutAttribs*numOutBuf))
+.equ skin_offset, (skin_vertCount*skin_numUnpackAttribs)
+.equ skin_outBuf1, (2*skin_offset)
+.equ skin_outSize, (1 + skin_vertCount*numOutAttribs)
+.equ skin_outBuf2, (skin_outBuf1+skin_outSize)
+.equ skin_clipVertCount, ((skin_vertexTop-skin_outBuf1-numOutBuf)/(skin_numUnpackAttribs+numOutAttribs*numOutBuf))
+.equ skin_clipOutSize, (1 + skin_clipVertCount*numOutAttribs)
+.equ skin_clipOutBuf2, (skin_outBuf1+skin_clipOutSize)
+.equ skin_clipBuf, (skin_clipOutBuf2+skin_clipOutSize)
+.equ skin_clipVertLimitTL, (skin_clipVertCount-21)
+.equ skin_clipVertLimitTS, (skin_clipVertCount-15)
 
 
-;; lights
-.equ colorClamp,	0x3d0
-.equ vertFactor,	0x3d1
-.equ lightDirs,		0x3d2
-.equ lightBase,		0x3d5
-.equ lightCols,		0x3d6
-.equ lightDirs2,	0x3da
-.equ lightXXX,		0x3dd
-.equ lightCols2,	0x3de
+;; 64*4 qwords, the skin layout's
+.equ boneMatrices,	STD_BONEMATRICES
+
+;; the layout, shared with the upload code: std_layout.h
+.equ lightDirs,		STD_LIGHTDIRX
+.equ lightBase,		STD_LIGHTBASE
+.equ lightCols,		STD_LIGHTCOL0
+.equ lightDirs2,	STD_LIGHTDIRXB
+.equ lightXXX,		STD_LIGHTSPARE
+.equ lightCols2,	STD_LIGHTCOL4
+.equ matrix0,		STD_MATRIX0
+.equ matrix1,		STD_MATRIX1
+.equ matrix2,		STD_MATRIX2
+.equ matrix3,		STD_MATRIX3
+.equ xyzwScale,		STD_XYZWSCALE
+.equ xyzwOffset,	STD_XYZWOFFSET
+.equ clipConsts,	STD_CLIPCONSTF
+.equ gifTag,		STD_GIFTAG
+.equ colorClamp,	STD_COLORCLAMP
+.equ colorScale,	STD_COLORSCALE
+.equ vertFactor,	STD_VERTFACTOR
+.equ codeSwitch,	STD_PIPELINE0
+.equ outBufs,		STD_OUTBUFS
+.equ clipConstI,	STD_CLIPCONSTI
 
 
-;; same as IN here
 #define UN_VERTEX(n,r) 0 + (n)*numInAttribs(r)
 #define UN_UV(n,r) 1 + (n)*numInAttribs(r)
 #define UN_RGBA(n,r) 2 + (n)*numInAttribs(r)
 #define UN_NORMAL(n,r) 3 + (n)*numInAttribs(r)
+;; the skin record as unpacked, one qword wider: the same attributes and
+;; the skin data, so the stride differs and only the skin preprocess reads it
+#define US_VERTEX(n,r) 0 + (n)*numSkinAttribs(r)
+#define US_UV(n,r) 1 + (n)*numSkinAttribs(r)
+#define US_RGBA(n,r) 2 + (n)*numSkinAttribs(r)
+#define US_NORMAL(n,r) 3 + (n)*numSkinAttribs(r)
+#define US_SKIN(n,r) 4 + (n)*numSkinAttribs(r)
 
 #define IN_VERTEX(n,r) 0 + (n)*numInAttribs(r)
 #define IN_UV(n,r) 1 + (n)*numInAttribs(r)
@@ -55,6 +108,72 @@ DMAret *
 MPG 0, *
 .vu
 start:
+
+
+.if 1
+	nop				ilw.x vi12,outBufs(vi00)
+	nop				ilw.y vi13,outBufs(vi00)
+	nop				lq vf28,matrix0(vi00)
+	nop				lq vf29,matrix1(vi00)
+	nop				lq vf30,matrix2(vi00)
+	nop				lq vf31,matrix3(vi00)
+	nop				lq vf27,xyzwScale(vi00)
+	nop				lq vf26,xyzwOffset(vi00)
+	nop				lq vf25,colorScale(vi00)
+	nop				lq vf24,clipConsts(vi00)
+restart:
+	nop				xtop vi02			; input pointer
+	nop				xitop vi01			; vertex count
+	nop				iaddiu vi03,vi01,3
+	nop				iaddiu vi04,vi00,~3
+	nop				iand vi04,vi03,vi04		; round up vertex count
+	nop				iadd vi03,vi02,vi04
+.rept numInAttribs-1
+	nop				iadd vi03,vi03,vi04
+.endr
+
+	nop				ilw.x vi14,codeSwitch+0(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.y vi14,codeSwitch+0(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.z vi14,codeSwitch+0(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.w vi14,codeSwitch+0(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+
+	nop				ilw.x vi14,codeSwitch+1(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.y vi14,codeSwitch+1(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.z vi14,codeSwitch+1(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.w vi14,codeSwitch+1(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+
+	nop				ilw.x vi14,codeSwitch+2(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.y vi14,codeSwitch+2(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.z vi14,codeSwitch+2(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+	nop				ilw.w vi14,codeSwitch+2(vi00)
+	nop				jalr vi15,vi14
+	nop				nop
+
+
+.else
+
 	nop				ilw.y vi12,codeSwitch(vi00)
 	nop				ilw.z vi13,codeSwitch(vi00)
 	nop				lq vf28,matrix0(vi00)
@@ -66,8 +185,6 @@ start:
 	nop				lq vf25,colorScale(vi00)
 	nop				lq vf24,clipConsts(vi00)
 restart:
-	nop				ilw.x vi09,codeSwitch(vi00)	; process switch
-
 	;; Calculate end of input buffer with vertex count rounded up to multiple of 4
 	;; Note that the maximum vertex count is always a multiple of 4 so this is always legal
 	nop				xtop vi02			; input pointer
@@ -80,124 +197,29 @@ restart:
 	nop				iadd vi03,vi03,vi04
 .endr
 
-	;; Convert normals and colors to float. this is also where we d do skinning probably
-	;; TODO: could simplify this if we have no lighting
-	nop				iaddiu vi02,vi02,4*numInAttribs
-	nop				loi 0.007874015748031496	; normal scale
-	nop				lq vf01,IN_RGBA(0-4,vi02)
-	sub vf09,vf00,vf00		lq vf02,IN_RGBA(1-4,vi02)
-	nop				lq vf03,IN_RGBA(2-4,vi02)
-	nop				lq vf04,IN_RGBA(3-4,vi02)
-PreprocLoop:
-	itof0 vf01,vf01			lq vf05,IN_NORMAL(0-4,vi02)
-	itof0 vf02,vf02			lq vf06,IN_NORMAL(1-4,vi02)
-	itof0 vf03,vf03			lq vf07,IN_NORMAL(2-4,vi02)
-	itof0 vf04,vf04			lq vf08,IN_NORMAL(3-4,vi02)
-	itof0.xyz vf05,vf05		sq vf01,IN_RGBA(0-4,vi02)
-	itof0.xyz vf06,vf06		sq vf02,IN_RGBA(1-4,vi02)
-	itof0.xyz vf07,vf07		sq vf03,IN_RGBA(2-4,vi02)
-	itof0.xyz vf08,vf08		sq vf04,IN_RGBA(3-4,vi02)
-	muli.xyz vf05,vf05,i		  lq vf01,IN_RGBA(0,vi02)
-	muli.xyz vf06,vf06,i		  lq vf02,IN_RGBA(1,vi02)
-	muli.xyz vf07,vf07,i		  lq vf03,IN_RGBA(2,vi02)
-	muli.xyz vf08,vf08,i		  lq vf04,IN_RGBA(3,vi02)
-	nop				sq vf05,IN_NORMAL(0-4,vi02)
-	nop				sq vf06,IN_NORMAL(1-4,vi02)
-	nop				sq vf07,IN_NORMAL(2-4,vi02)
-	nop				sq vf08,IN_NORMAL(3-4,vi02)
-.if 0
-	;; clear ADC flag here if geometry doesn t write it
-	nop				sq.w vf09,IN_VERTEX(0-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(1-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(2-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(3-4,vi02)
-.endif
-	nop				ibne vi02,vi03,PreprocLoop
-	nop				iaddiu vi02,vi02,4*numInAttribs
+	;; pipeline
+	nop				bal vi15,PreprocessV32T32C8N8
+	nop				nop
 
-DoLights:
-	nop				ilw.w vi15,lightBase(vi00)	; light processor
+	nop				ilw.w vi15,lightBase(vi00)	; light switch
 	nop				jalr vi15,vi15
 	nop				nop
+
+	nop				ilw.x vi09,codeSwitch(vi00)	; process switch
 	nop				jr vi09
 	nop				nop
 
-;; sketch for decompression
-
-.equ unXYZScale,	0x3f7
-.equ unXYZOff,		0x3f8
-.equ unUVScale,		0x3f9
-
-PreprocessViTi:
-.if 1
-	nop				loi 0.007874015748031496	; normal scale
-
-	nop				lq vf05,unXYZScale(vi00)
-	nop				lq vf06,unXYZOff(vi00)
-	nop				lq vf07,unUVScale(vi00)
-PProcViTi_Loop:
-	nop				lq vf01,UN_VERTEX(0,vi02)
-	nop				lq vf02,UN_UV(0,vi02)
-	nop				lq vf03,UN_NORMAL(0,vi02)
-	nop				lq vf04,UN_RGBA(0,vi02)
-
-	mul.xyz vf01,vf01,vf05		addiu vi04,vi02,vi00
-	mul.xyz vf02,vf02,vf07		iaddiu vi02,vi02,numInAttribs
-	itof0 vf03,vf03			nop
-	itof0 vf04,vf04			nop
-	add.xyz vf01,vf01,vf06		nop
-	nop				sq vf02,UN_UV(0,vi04)
-	muli.xyz vf03,vf03,i		nop
-	nop				sq vf04,UN_RGBA(0,vi04)
-	nop				sq vf01,UN_VERTEX(0,vi04)
-	nop				ibne vi04,vi03,PProcViTi_Loop
-	nop				sq vf03,UN_NORMAL(0,vi04)
-.else
-	nop				iaddiu vi02,vi02,4*numInAttribs
-	nop				loi 0.007874015748031496	; normal scale
-	nop				lq vf01,IN_RGBA(0-4,vi02)
-	sub vf09,vf00,vf00		lq vf02,IN_RGBA(1-4,vi02)
-	nop				lq vf03,IN_RGBA(2-4,vi02)
-	nop				lq vf04,IN_RGBA(3-4,vi02)
-PProcViTi_Loop:
-	itof0 vf01,vf01			lq vf05,IN_NORMAL(0-4,vi02)
-	itof0 vf02,vf02			lq vf06,IN_NORMAL(1-4,vi02)
-	itof0 vf03,vf03			lq vf07,IN_NORMAL(2-4,vi02)
-	itof0 vf04,vf04			lq vf08,IN_NORMAL(3-4,vi02)
-	itof0.xyz vf05,vf05		sq vf01,IN_RGBA(0-4,vi02)
-	itof0.xyz vf06,vf06		sq vf02,IN_RGBA(1-4,vi02)
-	itof0.xyz vf07,vf07		sq vf03,IN_RGBA(2-4,vi02)
-	itof0.xyz vf08,vf08		sq vf04,IN_RGBA(3-4,vi02)
-	muli.xyz vf05,vf05,i		  lq vf01,IN_RGBA(0,vi02)
-	muli.xyz vf06,vf06,i		  lq vf02,IN_RGBA(1,vi02)
-	muli.xyz vf07,vf07,i		  lq vf03,IN_RGBA(2,vi02)
-	muli.xyz vf08,vf08,i		  lq vf04,IN_RGBA(3,vi02)
-	nop				sq vf05,IN_NORMAL(0-4,vi02)
-	nop				sq vf06,IN_NORMAL(1-4,vi02)
-	nop				sq vf07,IN_NORMAL(2-4,vi02)
-	nop				sq vf08,IN_NORMAL(3-4,vi02)
-.if 0
-	;; clear ADC flag here if geometry doesn t write it
-	nop				sq.w vf09,IN_VERTEX(0-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(1-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(2-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(3-4,vi02)
-.endif
-	nop				ibne vi02,vi03,PProcViTi_Loop
-	nop				iaddiu vi02,vi02,4*numInAttribs
 .endif
 
-	nop				b DoLights
-	nop				nop
-
+#include "std_preproc.vu"
 #include "std_lighting.vu"
 
 Process:
 #include "default_proc.vu"
 TLClip:
-#include "TLclip.vu"
+#include "std_TLclip.vu"
 TSClip:
-#include "TSclip.vu"
+#include "std_TSclip.vu"
 
 End:
 	nop[e]				nop
@@ -212,31 +234,66 @@ End:
 .EndDmaData
 
 
-.global xtcCodeStd
-xtcCodeStd:
+;; the layouts, xtcMicrocode in src/xtci.h: the one program, its
+;; buffer sizes, its input record, and what the upload sends per layout
+.macro layout name, tag, desc
+.global \name
+\name:
 .word code
-.word vertexTop
-.word vertCount
-.word numInAttribs
-.word offset
-.word inputDesc
+.word \tag\()_vertexTop
+.word \tag\()_vertCount
+.word \tag\()_numUnpackAttribs
+.word \tag\()_offset
+.word \desc
 ; numVerts - indexed by prim type
-.word vertCount & ~3		; point and non-ref strips
-.word ((vertCount/2) & ~3)*2	; line list
-.word (((vertCount&~3)-1) & ~3)+1	; line strip
-.word ((vertCount/3) & ~3)*3	; tri list
-.word (((vertCount&~3)-2) & ~3)+2	; tri strip
-; code switch
-.word Process, outBuf1, outBuf2, 0
-.word TLClip, outBuf1, clipOutBuf2, 0
-.word TSClip, outBuf1, clipOutBuf2, 0
+.word \tag\()_vertCount & ~3		; point and non-ref strips
+.word ((\tag\()_vertCount/2) & ~3)*2	; line list
+.word (((\tag\()_vertCount&~3)-1) & ~3)+1	; line strip
+.word ((\tag\()_vertCount/3) & ~3)*3	; tri list
+.word (((\tag\()_vertCount&~3)-2) & ~3)+2	; tri strip
+; clipConstI: the clip scratch and the counts past which a batch flushes
+.word \tag\()_clipBuf, \tag\()_clipVertLimitTL, \tag\()_clipVertLimitTS, 0
+; code switch: the submit stage and its output buffers, plain and clipping
+.word Process, \tag\()_outBuf1, \tag\()_outBuf2, 0
+.word TLClip, \tag\()_outBuf1, \tag\()_clipOutBuf2, 0
+.word TSClip, \tag\()_outBuf1, \tag\()_clipOutBuf2, 0
+.endm
 
-inputDesc:
+layout xtcCodeStd, std, std_inputDesc
+layout xtcCodeStdSkin, skin, skin_inputDesc
+
+std_inputDesc:
 .word 4, 4
 .word XTCP_POSITION, 0, UNPACK_V4_32
 .word XTCP_TEXCOORD, 1, UNPACK_V2_32
 .word XTCP_COLOR,    2, UNPACK_V4_8 | UNPACK_USN
 .word XTCP_NORMAL,   3, UNPACK_V3_8
+
+skin_inputDesc:
+.word 5, 5
+.word XTCP_POSITION, 0, UNPACK_V4_32
+.word XTCP_TEXCOORD, 1, UNPACK_V2_32
+.word XTCP_COLOR,    2, UNPACK_V4_8 | UNPACK_USN
+.word XTCP_NORMAL,   3, UNPACK_V3_8
+.word XTCP_SKINDATA, 4, UNPACK_V4_32
+
+;; the stages, in std_layout.h's order: what the upload's pipeline
+;; chain is made of
+.global xtcStdStages
+xtcStdStages:
+	.word End
+	.word PreprocessV32T32C8N8
+	.word PreprocessV16T16C8N8
+	.word PreprocessSkinV32T32C8N8
+	.word 0				; texgen, not yet
+	.word LtWhiteV
+	.word LtBaseV
+	.word LtBaseVDir
+	.word LtBaseVDirV
+	.word LtBaseVDir8
+	.word Process
+	.word TLClip
+	.word TSClip
 
 .global xtcStdLightProcs
 xtcStdLightProcs:

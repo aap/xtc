@@ -208,6 +208,9 @@ STRUCT(xtcMicrocode) {
 	uint32 offset;
 	xtcpBatchDesc *desc;
 	uint32 numVerts[XTC_NUM_PRIMTYPES];
+	// the clip scratch and the two flush limits: STD_CLIPCONSTI, sent
+	// when the layout changes (the std pipes; the RW ones assemble them in)
+	uint32 clipConsts[4];
 	// pipeline code will know what to do with this (for now)
 	xtcMicrocodeSwitch swtch[0];
 };
@@ -254,10 +257,16 @@ extern xtcImState imstate;
  * Pipelines and prim lists
  */
 
+// what a prim list's data asks of the pipeline, beyond the state
+enum {
+	XTCP_ST_DECOMP16 = 1,	// 16 bit positions and texcoords, dequantize
+	XTCP_ST_SKIN = 2	// skin data in the record
+};
+
 struct xtcPipeline {
 	// returns the `next' tag it opened: the caller writes the vertices,
-	// then targets the tag past them
-	mdmaTag *(*upload)(xtcPipeline *pipe, xtcPrimType primtype);
+	// then targets the tag past them.  stages: the list's XTCP_ST_ bits
+	mdmaTag *(*upload)(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages);
 	xtcMicrocode *code;
 };
 
@@ -266,6 +275,7 @@ struct xtcPrimList {
 	xtcPrimType primtype;
 	uint32 size;
 	void *list;
+	uint32 stages;		// XTCP_ST_ bits
 };
 
 

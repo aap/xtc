@@ -175,7 +175,20 @@ build/host/spyroconv: tools/spyroconv.c src/lodepng.c src/lodepng.h
 	@mkdir -p $(@D)
 	$(HOSTCC) -O2 -Isrc -o $@ tools/spyroconv.c src/lodepng.c -lm
 
-XM2DSMDEP := tools/xm2dsm.lua src/vu1/stdPipe.dsm src/vu1/stdSkinPipe.dsm
+# the converter reads the batch size and the input layout from the
+# microcode, but the chunks must not depend on the microcode files:
+# every edit to the code would regenerate all the geometry.  So the
+# interface is extracted -- the equates the batch size comes from and
+# the input descriptor -- into a file that is only touched when that
+# changes, and the chunks depend on the file.
+PIPEINFO := $(CHKDIR)/pipeinfo.txt
+XM2DSMDEP := tools/xm2dsm.lua $(PIPEINFO)
+
+$(PIPEINFO): src/vu1/stdPipe.dsm
+	@mkdir -p $(@D)
+	@(grep -E '^\.equ (numInAttribs|numOutAttribs|numOutBuf|numSkinAttribs|(std|skin)_(vertexTop|numUnpackAttribs|vertCount)),' $<; \
+	  sed -n '/^std_inputDesc:/,/^$$/p' $<; sed -n '/^skin_inputDesc:/,/^$$/p' $<) > $@.tmp
+	@if cmp -s $@.tmp $@; then rm $@.tmp; echo "pipeinfo unchanged"; else mv $@.tmp $@; echo "pipeinfo changed"; fi
 
 $(CHKDIR)/%.strips: samples/fox/%.xm build/host/xstrip
 	@mkdir -p $(@D)

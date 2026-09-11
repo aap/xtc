@@ -58,26 +58,59 @@ local USAGE = { XTCP_POSITION = "pos", XTCP_TEXCOORD = "uv", XTCP_COLOR = "rgba"
 -- VIF UNPACK: command byte, bytes per vertex
 local FORMATS = {
 	UNPACK_V4_32 = { 0x6C, 16 }, UNPACK_V3_32 = { 0x68, 12 }, UNPACK_V2_32 = { 0x64, 8 },
-	UNPACK_V4_16 = { 0x6D, 8 },  UNPACK_V3_16 = { 0x69, 6 },
+	UNPACK_V4_16 = { 0x6D, 8 },  UNPACK_V3_16 = { 0x69, 6 },  UNPACK_V2_16 = { 0x65, 4 },
 	UNPACK_V4_8  = { 0x6E, 4 },  UNPACK_V3_8  = { 0x6A, 3 },
 }
 
--- the .equ lines (C expressions over earlier equates) and the inputDesc
-local function readPipeline(file)
+
+-- #define NAME VALUE lines of the files a microcode #includes (next to
+-- it), for layouts that live in a header the assembler sees through cpp
+local function readDefines(file, eq)
+	local dir = file:match("^(.*)/[^/]*$") or "."
+	for line in io.lines(file) do
+		local inc = line:match('^%s*#include%s+"([^"]+)"')
+		if inc then
+			local f = io.open(dir .. "/" .. inc)
+			if f then
+				for l in f:lines() do
+					local name, val = l:match("^%s*#define%s+([%w_]+)%s+([%w_x]+)")
+					if name then
+						local v = tonumber(val) or eq[val]
+						if v then eq[name] = v end
+					end
+				end
+				f:close()
+			end
+		end
+	end
+end
+
+-- the .equ lines (C expressions over earlier equates) and the layout's
+-- input descriptor.  A microcode holds its layouts as prefixed equates
+-- (std_vertCount, skin_vertCount) and descriptors (std_inputDesc:);
+-- prefix picks one.  An unprefixed file is its own single layout.
+local function readPipeline(file, prefix)
+	prefix = prefix or ""
 	local eq = {}
+	readDefines(file, eq)
 	local attribs = {}
 	local stride
+	local inblock = prefix == ""
 	local f = assert(io.open(file), "no microcode " .. file)
 	for line in f:lines() do
 		line = line:gsub(";.*", "")
-		local name, expr = line:match("^%s*%.equ%s+(%w+)%s*,%s*(.-)%s*$")
+		local name, expr = line:match("^%s*%.equ%s+([%w_]+)%s*,%s*(.-)%s*$")
 		if name then
 			expr = expr:gsub("/", "//")
 			local fn = assert(load("return " .. expr, name, "t", eq))
 			eq[name] = fn()
 		end
+		if prefix ~= "" then
+			local label = line:match("^([%w_]+)inputDesc:")
+			if label then inblock = label == prefix end
+		end
 		local usage, off, fmt = line:match("^%s*%.word%s+(XTCP_%w+)%s*,%s*(%d+)%s*,%s*(.-)%s*$")
-		if usage then
+		if usage and inblock then
 			local usn = fmt:find("UNPACK_USN") ~= nil
 			local fmtname = fmt:match("UNPACK_V%d_%d+")
 			local cmd, size = table.unpack(FORMATS[fmtname])
@@ -90,12 +123,29 @@ local function readPipeline(file)
 			}
 		end
 		local s, n = line:match("^%s*%.word%s+(%d+)%s*,%s*(%d+)%s*$")
-		if s and not stride then stride = tonumber(s) end
+		if s and inblock and not stride then stride = tonumber(s) end
 	end
 	f:close()
-	local vertCount = assert(eq.vertCount, "no vertCount in " .. file)
+	local vertCount = assert(eq[prefix .. "vertCount"], "no " .. prefix .. "vertCount in " .. file)
+	-- quantized positions and texcoords want the dequantization
+	-- constants: three qwords, xyz scale, xyz offset, uv scale, at the
+	-- address the microcode names
+	eq.unXYZScale = eq.unXYZScale or eq.STD_UNXYZSCALE
+	eq.unXYZOff = eq.unXYZOff or eq.STD_UNXYZOFF
+	eq.unUVScale = eq.unUVScale or eq.STD_UNUVSCALE
+	local quant = false
+	for _, at in ipairs(attribs) do
+		-- V4_16/V3_16 positions, V2_16 texcoords
+		if (at.usage == "pos" and at.size <= 8) or (at.usage == "uv" and at.size <= 4) then quant = true end
+	end
+	if quant then
+		assert(eq.unXYZScale and eq.unXYZOff == eq.unXYZScale + 1 and eq.unUVScale == eq.unXYZScale + 2,
+			file .. ": quantized input wants .equ unXYZScale, unXYZOff, unUVScale, in that order")
+	end
 	return {
-		file = file, stride = stride, attribs = attribs, vertCount = vertCount,
+		file = file .. (prefix ~= "" and " (" .. prefix:sub(1, -2) .. ")" or ""),
+		stride = stride, attribs = attribs, vertCount = vertCount,
+		quant = quant, unAddr = eq.unXYZScale,
 		-- the microcode footer's numVerts: a tri list batch is a multiple
 		-- of 4 and of 3, a strip batch a multiple of 4 plus the 2 repeated
 		triListVerts = ((vertCount // 3) & ~3) * 3,
@@ -279,14 +329,56 @@ local function packSkin(w, idx)
 	return "\t.int " .. table.concat(words, ", ")
 end
 
+-- quantization of a mesh: pos = q*xyzScale + xyzOff, uv = q*uvScale,
+-- q a signed 16 bit integer.  the offset is the centre of the bounds
+-- and the scale the half range over 32767, per axis; texcoords keep
+-- their origin, the scale is the largest magnitude over 32767
+local function quantize(mesh)
+	local lo, hi = { 1e30, 1e30, 1e30 }, { -1e30, -1e30, -1e30 }
+	local uvmax = 0
+	for _, v in ipairs(mesh.v) do
+		for k = 1, 3 do
+			if v[k] < lo[k] then lo[k] = v[k] end
+			if v[k] > hi[k] then hi[k] = v[k] end
+		end
+	end
+	for _, t in ipairs(mesh.t) do
+		uvmax = math.max(uvmax, math.abs(t[1]), math.abs(t[2]))
+	end
+	local q = { off = {}, scale = {}, uvscale = math.max(uvmax, 1e-6) / 32767 }
+	for k = 1, 3 do
+		q.off[k] = (lo[k] + hi[k]) / 2
+		q.scale[k] = math.max((hi[k] - lo[k]) / 2, 1e-6) / 32767
+	end
+	return q
+end
+
+local function q16(x)
+	x = math.floor(x + 0.5)
+	if x > 32767 then x = 32767 elseif x < -32768 then x = -32768 end
+	return x
+end
+
 -- one attribute of one vertex as a data line
 local function dataLine(attrib, mesh, vi)
 	local u = attrib.usage
 	if u == "pos" then
 		local v = mesh.v[vi]
+		if attrib.size <= 8 then
+			local q = mesh.quant
+			local a = q16((v[1] - q.off[1]) / q.scale[1])
+			local b = q16((v[2] - q.off[2]) / q.scale[2])
+			local c = q16((v[3] - q.off[3]) / q.scale[3])
+			if attrib.size == 8 then return string.format("\t.short %d, %d, %d, 0", a, b, c) end
+			return string.format("\t.short %d, %d, %d", a, b, c)
+		end
 		return "\t.float " .. floats({ v[1], v[2], v[3], 0 })
 	elseif u == "uv" then
 		local t = mesh.t[vi] or { 0, 0 }
+		if attrib.size == 4 then
+			local q = mesh.quant
+			return string.format("\t.short %d, %d", q16(t[1] / q.uvscale), q16(t[2] / q.uvscale))
+		end
 		return "\t.float " .. floats(t)
 	elseif u == "rgba" then
 		local c = mesh.c[vi] or { 255, 255, 255, 255 }
@@ -314,6 +406,7 @@ end
 -- works (the arrays are per pipeline anyway, they live in the chunk).
 local function emitPrimList(sym, mesh, pipe, strip)
 	local verts = {}
+	if pipe.quant then mesh.quant = quantize(mesh) end
 	if strip then
 		for _, i in ipairs(strip) do verts[#verts+1] = i + 1 end
 	else
@@ -364,6 +457,18 @@ local function emitPrimList(sym, mesh, pipe, strip)
 	end)())
 	emit(".align 4")
 	emitf("%s:", sym)
+	if pipe.quant then
+		local q = mesh.quant
+		emit("; dequantization constants for this list: pos = q*scale + off, uv = q*uvscale")
+		emit("DMAcnt *")
+		emit("stcycl 1, 1")
+		emitf("unpack V4_32, 0x%x, *", pipe.unAddr)
+		emitf("\t.float %s, 0.0\t; xyz scale", floats(q.scale))
+		emitf("\t.float %s, 0.0\t; xyz offset", floats(q.off))
+		emitf("\t.float %s, %s, 0.0, 0.0\t; uv scale", fmtfloat(q.uvscale), fmtfloat(q.uvscale))
+		emit(".EndUnpack")
+		emit(".EndDmaData")
+	end
 	for b, bt in ipairs(batches) do
 		local lastBatch = b == numBatches
 		emitf("; batch %d: vertices %d..%d", b - 1, bt.base, bt.base + bt.count - 1)
@@ -424,6 +529,10 @@ local function emitMesh(sym, mesh, k, pipes, strip)
 	emit(strip and "\t.int 4\t; XTC_TRISTRIP" or "\t.int 3\t; XTC_TRILIST")
 	emit("\t.int 0\t; size, only the runtime's dumps want it")
 	emitPtr(sym .. "_chain")
+	-- what the data asks of the pipeline: XTCP_ST_ bits of xtci.h
+	local quant = (skinned and pipes.skin or pipes.std).quant
+	emitf("\t.int %d\t; stages: %s", (quant and 1 or 0) + (skinned and 2 or 0),
+		(quant and "dequantize " or "") .. (skinned and "skin" or "none"))
 
 	if not noGeo then
 		label(sym .. "_geo", "xGeometry")
@@ -532,8 +641,8 @@ end
 
 local function main()
 	local pipes = {
-		std = readPipeline(pipesDir .. "/stdPipe.dsm"),
-		skin = readPipeline(pipesDir .. "/stdSkinPipe.dsm"),
+		std = readPipeline(pipesDir .. "/stdPipe.dsm", "std_"),
+		skin = readPipeline(pipesDir .. "/stdPipe.dsm", "skin_"),
 	}
 	local mdl = readXm(path)
 	local strips = stripsPath and readStrips(stripsPath) or {}

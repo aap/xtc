@@ -167,3 +167,58 @@ What was verified with both 2.9 toolchains:
   all 58211 keys of the fox's animation chunk against the text the
   loader would otherwise parse and found no difference, and the PS2
   renders the same frame from either to the pixel.
+
+## Which instructions depend on a define?
+
+`tools/vudiff.sh src/vu1/stdPipe.dsm vertexTop=0x2d0` assembles the
+microcode as it is and with the equate replaced (or with `-DNAME=1`
+for cpp defines), disassembles both with `ee-objdump -m dvp:vu`, and
+prints every instruction whose encoding differs, with its source line,
+instructions apart from the footer's data words.  The std pipe with the
+skin pipe's `vertexTop` differs in six instructions: the four
+`iaddiu vi09,vi00,clipBuf` and the two `clipVertLimit` checks in the
+clip paths; everything else the layout touches is data.
+
+## Quantized input
+
+`xm2dsm.lua` follows the microcode's input descriptor: a position of
+`UNPACK_V4_16`/`V3_16` and a texcoord of `UNPACK_V2_16` come out as
+signed 16 bit integers, and the prim list then starts with an unpack of
+three qwords to the address the microcode names with `.equ unXYZScale`,
+`unXYZOff`, `unUVScale` (in that order): `pos = q*xyzScale + xyzOff`,
+`uv = q*uvScale`.  The offset is the centre of the list's bounds and the
+scale its half range over 32767 per axis; texcoords keep their origin.
+The fox comes out within half a step everywhere (8e-6 of a 1.05 extent,
+1.5e-5 in uv) and its chunk shrinks from 795 to 681 KB.  `vumap.lua`
+prints the VU memory a microcode's equates describe, plain and clipping
+entry, with the gaps.
+
+## One program, two layouts
+
+`stdPipe.dsm` is the std and the skin pipe: the code once, resident,
+and the VU memory layouts as data.  The equates come in two prefixed
+sets, `std_` and `skin_` (`std_vertCount`, `skin_outBuf1`, ...), each
+footer is the `layout` macro expanded for one of them (xtcMicrocode in
+src/xtci.h: sizes, numVerts, clipConstI, the switch table), and each has
+its own input descriptor (`std_inputDesc:`, `skin_inputDesc:`).  The
+code assembles no layout number into an instruction; what a layout
+needs at run time -- the double buffer's base and offset, the output
+buffers, clipConstI -- the upload sends when the layout changes, and the
+microcode switch uploads the image only when the image changes.
+`xm2dsm.lua -pipes DIR` reads both layouts out of the one file,
+`vumap.lua file.dsm skin_` draws one, `build/chk/pipeinfo.txt` holds
+both.  The skin preprocess strides on its own record, `numSkinAttribs`.
+
+Two things a stage must not assume once it is called from the chain
+(both bit, 2026-09-11).  The walker keeps the stage address in vi14 and
+the link in vi15, so a stage sees those on entry, not zero: a register a
+stage tests on every path has to be set on every path (the clip forks
+load their flush limit at the head of the batch loop now; loading it
+only on the path that clips a triangle left the address there, no flush
+ever came, and the clip scratch ran over the constants).  And the
+unpacked record has two strides: `UN_*(n,r)` is the 4-attribute record
+the light and transform stages read, `US_*(n,r)` the 5-attribute one the
+skin preprocess reads before it repacks in place.  Its pipelined loop
+prefetches vertex n+1 through `US_VERTEX(1,vi04)`; with the 4-stride
+macro that read the skin qword as a position.  `tools/vudiff.sh` does
+not catch either: neither is an equate.
