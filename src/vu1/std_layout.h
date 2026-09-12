@@ -83,16 +83,17 @@
 #define STD_STAGE_PREP_V32T32C8N8	1	/* the input as it is */
 #define STD_STAGE_PREP_V16T16C8N8	2	/* dequantize positions and texcoords */
 #define STD_STAGE_PREP_SKIN_V32T32C8N8	3	/* skin, then repack */
-#define STD_STAGE_TEXGEN		4	/* not yet */
-#define STD_STAGE_LT_WHITEV		5	/* the light routines, in xtcStdLightProcs' order */
-#define STD_STAGE_LT_BASEV		6
-#define STD_STAGE_LT_BASEVDIR		7
-#define STD_STAGE_LT_BASEVDIRV		8
-#define STD_STAGE_LT_BASEVDIR8		9
-#define STD_STAGE_PROCESS		10	/* transform and submit */
-#define STD_STAGE_TLCLIP		11	/* the same, clipping tri lists */
-#define STD_STAGE_TSCLIP		12	/* and tri strips */
-#define STD_NUMSTAGES			13
+#define STD_STAGE_PREP_SKIN_V16T16C8N8	4	/* dequantize, skin, repack */
+#define STD_STAGE_TEXGEN		5	/* not yet */
+#define STD_STAGE_LT_WHITEV		6	/* the light routines, in xtcStdLightProcs' order */
+#define STD_STAGE_LT_BASEV		7
+#define STD_STAGE_LT_BASEVDIR		8
+#define STD_STAGE_LT_BASEVDIRV		9
+#define STD_STAGE_LT_BASEVDIR8		10
+#define STD_STAGE_PROCESS		11	/* transform and submit */
+#define STD_STAGE_TLCLIP		12	/* the same, clipping tri lists */
+#define STD_STAGE_TSCLIP		13	/* and tri strips */
+#define STD_NUMSTAGES			14
 /* 0x3fb spare */
 
 /* not the upload's */

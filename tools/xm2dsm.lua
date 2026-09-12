@@ -649,8 +649,8 @@ local function main()
 -- -quant: the data decides, not the pipe's descriptor.  positions go
 -- V4_16, texcoords V2_16, same slots (an unpack fills a qword per vertex
 -- whatever it reads), and the list carries its dequantization constants
--- and asks for the dequantizing preprocess through its stage bits.  the
--- skin preprocess does not dequantize yet, so skinned meshes stay V32.
+-- and asks for the dequantizing preprocess through its stage bits, with
+-- or without skinning.
 local function quantizePipe(pipe)
 	for _, at in ipairs(pipe.attribs) do
 		if at.usage == "pos" then at.cmd, at.size, at.name = FORMATS.UNPACK_V4_16[1], 8, "V4_16"
@@ -659,7 +659,7 @@ local function quantizePipe(pipe)
 	assert(pipe.unAddr, pipe.file .. ": no dequantization constants (unXYZScale) for -quant")
 	pipe.quant = true
 end
-if quantFlag then quantizePipe(pipes.std) end
+if quantFlag then quantizePipe(pipes.std); quantizePipe(pipes.skin) end
 	local mdl = readXm(path)
 	local strips = stripsPath and readStrips(stripsPath) or {}
 	numberNodes(mdl.root)

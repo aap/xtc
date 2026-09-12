@@ -349,9 +349,9 @@ upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 			// 0 would restart the program
 			for(i = 0; i < STD_PIPELINE_SIZE*4; i++)
 				chain[i] = st[STD_STAGE_END];
-			chain[n++] = st[skin ? STD_STAGE_PREP_SKIN_V32T32C8N8 :
-				(stages & XTCP_ST_DECOMP16) ? STD_STAGE_PREP_V16T16C8N8 :
-				STD_STAGE_PREP_V32T32C8N8];
+			int q = stages & XTCP_ST_DECOMP16;
+			chain[n++] = st[skin ? (q ? STD_STAGE_PREP_SKIN_V16T16C8N8 : STD_STAGE_PREP_SKIN_V32T32C8N8) :
+				(q ? STD_STAGE_PREP_V16T16C8N8 : STD_STAGE_PREP_V32T32C8N8)];
 			chain[n++] = st[STD_STAGE_LT_WHITEV + lightStage];
 			if(!xtcState.clipping) chain[n++] = st[STD_STAGE_PROCESS];
 			else chain[n++] = st[primtype == XTC_TRILIST ? STD_STAGE_TLCLIP : STD_STAGE_TSCLIP];

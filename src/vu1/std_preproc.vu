@@ -34,74 +34,109 @@ PProcV32T32C8N8_Loop:
 .endif
 	nop				ibne vi02,vi03,PProcV32T32C8N8_Loop
 	nop				iaddiu vi02,vi02,4*numInAttribs
+;;---------
 	nop				jr vi15
 	nop				nop
 
 ;; 16 bit positions and texcoords (V4_16, V2_16, signed), dequantized with
 ;; the constants the list brings; colours and normals as in the V32 version
 PreprocessV16T16C8N8:
-.if 1
-	nop				loi 0.007874015748031496	; normal scale
-
-	nop				lq vf05,unXYZScale(vi00)
-	nop				lq vf06,unXYZOff(vi00)
-	nop				lq vf07,unUVScale(vi00)
-PProcV16T16C8N8_Loop:
 	nop				lq vf01,UN_VERTEX(0,vi02)
 	nop				lq vf02,UN_UV(0,vi02)
 	nop				lq vf03,UN_NORMAL(0,vi02)
 	nop				lq vf04,UN_RGBA(0,vi02)
-
-	itof0 vf01,vf01			iadd vi04,vi02,vi00		; the unpack leaves integers
-	itof0 vf02,vf02			iaddiu vi02,vi02,numInAttribs
-	itof0 vf03,vf03			nop
-	itof0 vf04,vf04			nop
-	mul.xyz vf01,vf01,vf05		nop
-	mul.xy vf02,vf02,vf07		nop
-	muli.xyz vf03,vf03,i		sq vf04,UN_RGBA(0,vi04)
-	add.xyz vf01,vf01,vf06		nop
-	nop				sq vf02,UN_UV(0,vi04)
-	nop				sq vf03,UN_NORMAL(0,vi04)
-	nop				ibne vi04,vi03,PProcV16T16C8N8_Loop
-	nop				sq vf01,UN_VERTEX(0,vi04)
-.else
-	nop				iaddiu vi02,vi02,4*numInAttribs
-	nop				loi 0.007874015748031496	; normal scale
-	nop				lq vf01,IN_RGBA(0-4,vi02)
-	sub vf09,vf00,vf00		lq vf02,IN_RGBA(1-4,vi02)
-	nop				lq vf03,IN_RGBA(2-4,vi02)
-	nop				lq vf04,IN_RGBA(3-4,vi02)
-PProcV16T16C8N8_Loop:
-	itof0 vf01,vf01			lq vf05,IN_NORMAL(0-4,vi02)
-	itof0 vf02,vf02			lq vf06,IN_NORMAL(1-4,vi02)
-	itof0 vf03,vf03			lq vf07,IN_NORMAL(2-4,vi02)
-	itof0 vf04,vf04			lq vf08,IN_NORMAL(3-4,vi02)
-	itof0.xyz vf05,vf05		sq vf01,IN_RGBA(0-4,vi02)
-	itof0.xyz vf06,vf06		sq vf02,IN_RGBA(1-4,vi02)
-	itof0.xyz vf07,vf07		sq vf03,IN_RGBA(2-4,vi02)
-	itof0.xyz vf08,vf08		sq vf04,IN_RGBA(3-4,vi02)
-	muli.xyz vf05,vf05,i		  lq vf01,IN_RGBA(0,vi02)
-	muli.xyz vf06,vf06,i		  lq vf02,IN_RGBA(1,vi02)
-	muli.xyz vf07,vf07,i		  lq vf03,IN_RGBA(2,vi02)
-	muli.xyz vf08,vf08,i		  lq vf04,IN_RGBA(3,vi02)
-	nop				sq vf05,IN_NORMAL(0-4,vi02)
-	nop				sq vf06,IN_NORMAL(1-4,vi02)
-	nop				sq vf07,IN_NORMAL(2-4,vi02)
-	nop				sq vf08,IN_NORMAL(3-4,vi02)
-.if 0
-	;; clear ADC flag here if geometry doesn t write it
-	nop				sq.w vf09,IN_VERTEX(0-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(1-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(2-4,vi02)
-	nop				sq.w vf09,IN_VERTEX(3-4,vi02)
-.endif
-	nop				ibne vi02,vi03,PProcV16T16C8N8_Loop
-	nop				iaddiu vi02,vi02,4*numInAttribs
-.endif
+	itof0 vf10,vf01			lq vf05,unXYZScale(vi00)
+	itof0 vf11,vf02			lq vf06,unXYZOff(vi00)
+	itof0 vf12,vf03			lq vf07,unUVScale(vi00)
+	itof0 vf13,vf04			loi 0.007874015748031496	; normal scale
+PProcV16T16C8N8_Loop:		;; 10 cycles per vert - 8 theoretical minimum
+	nop				iaddiu vi02,vi02,numInAttribs
+	mul.xyz vf10,vf10,vf05		  lq vf01,UN_VERTEX(0,vi02)
+	mul vf11,vf11,vf07		  lq vf02,UN_UV(0,vi02)
+	muli.xyz vf12,vf12,i		  lq vf03,UN_NORMAL(0,vi02)
+	nop				  lq vf04,UN_RGBA(0,vi02)
+	add.xyz vf14,vf10,vf06		sq vf13,UN_RGBA(-1,vi02)
+	  itof0 vf10,vf01		sq vf11,UN_UV(-1,vi02)
+	  itof0 vf11,vf02		sq vf12,UN_NORMAL(-1,vi02)
+	  itof0 vf12,vf03		ibne vi02,vi03,PProcV16T16C8N8_Loop
+	  itof0 vf13,vf04		sq vf14,UN_VERTEX(-1,vi02)
+;;---------
 	nop				jr vi15
 	nop				nop
 
 
+
+
+PreprocessSkinV16T16C8N8:
+	nop				loi 0.007874015748031496
+	nop				xtop vi04			; unpack pointer
+	nop				lq vf01,US_VERTEX(0,vi04)
+	nop				lq vf05,US_NORMAL(0,vi04)
+	nop				lq vf02,US_UV(0,vi04)
+	nop				lq vf03,US_RGBA(0,vi04)
+	itof0 vf01,vf01			ilw.x vi05,US_SKIN(0,vi04)
+	itof0 vf05,vf05			lq vf04,unXYZScale(vi00)
+	itof0 vf02,vf02			lq vf06,unXYZOff(vi00)
+	itof0 vf03,vf03			lq vf07,unUVScale(vi00)
+	mula acc,vf01,vf04		lq vf13,boneMatrices+3(vi05)
+	maddw vf01,vf06,vf00		lq vf11,boneMatrices+1(vi05)
+	muli vf05,vf05,i		lq vf12,boneMatrices+2(vi05)
+	mul vf02,vf02,vf07		lq vf10,boneMatrices+0(vi05)
+SkinV16T16C8N8_Loop:	; 44 cycles per vert
+	mulaw acc,vf13,vf00		ilw.y vi05,US_SKIN(0,vi04)
+	madday acc,vf11,vf01		sq vf02,IN_UV(0,vi02)
+	maddaz acc,vf12,vf01		sq vf03,IN_RGBA(0,vi02)
+	maddx vf02,vf10,vf01		lq vf15,boneMatrices+0(vi05)
+	mulax acc,vf10,vf05		lq vf16,boneMatrices+1(vi05)
+	madday acc,vf11,vf05		lq vf17,boneMatrices+2(vi05)
+	maddz vf06,vf12,vf05		lq vf18,boneMatrices+3(vi05)
+
+	mulax acc,vf15,vf01		ilw.z vi05,US_SKIN(0,vi04)
+	madday acc,vf16,vf01		nop
+	maddaz acc,vf17,vf01		nop
+	maddw vf03,vf18,vf00		lq vf10,boneMatrices+0(vi05)
+	mulax acc,vf15,vf05		lq vf11,boneMatrices+1(vi05)
+	madday acc,vf16,vf05		lq vf12,boneMatrices+2(vi05)
+	maddz vf07,vf17,vf05		lq vf13,boneMatrices+3(vi05)
+
+	mulax acc,vf10,vf01		ilw.w vi05,US_SKIN(0,vi04)
+	madday acc,vf11,vf01		nop
+	maddaz acc,vf12,vf01		nop
+	maddw vf04,vf13,vf00		lq vf15,boneMatrices+0(vi05)
+	mulax acc,vf10,vf05		lq vf16,boneMatrices+1(vi05)
+	madday acc,vf11,vf05		lq vf17,boneMatrices+2(vi05)
+	maddz vf08,vf12,vf05		lq vf18,boneMatrices+3(vi05)
+
+	mulax acc,vf15,vf01		  ilw.x vi05,US_SKIN(1,vi04)
+	madday acc,vf16,vf01		nop
+	maddaz acc,vf17,vf01		iaddiu vi02,vi02,numInAttribs
+	maddw vf19,vf18,vf00		lq vf14,US_SKIN(0,vi04)
+	mulax acc,vf15,vf05		nop
+	madday acc,vf17,vf05		move.w vf19,vf01
+	maddz vf09,vf18,vf05		nop
+
+	;; skinned vertex
+	mulax acc,vf02,vf14		  lq vf01,US_VERTEX(1,vi04)
+	madday acc,vf03,vf14		  lq vf05,US_NORMAL(1,vi04)
+	maddaz acc,vf04,vf14		  lq vf03,US_RGBA(1,vi04)
+	maddw.xyz vf19,vf19,vf14  	  lq vf02,US_UV(1,vi04)
+	;; skinned normal
+	mulax acc,vf06,vf14		  lq vf10,boneMatrices+0(vi05)
+	madday acc,vf07,vf14		  lq vf11,boneMatrices+1(vi05)
+	maddaz acc,vf08,vf14		  lq vf12,boneMatrices+2(vi05)
+	maddw vf09,vf09,vf14	  	  lq vf13,boneMatrices+3(vi05)
+
+	  itof0 vf01,vf01		iaddiu vi04,vi04,numSkinAttribs
+	  itof0 vf05,vf05		lq vf04,unXYZScale(vi00)
+	  itof0 vf02,vf02		lq vf06,unXYZOff(vi00)
+	  itof0 vf03,vf03		lq vf07,unUVScale(vi00)
+	  mula acc,vf01,vf04		sq vf19,IN_VERTEX(-1,vi02)
+	  maddw.xyz vf01,vf06,vf00	nop
+	  muli.xyz vf05,vf05,i		ibne vi02,vi03,SkinV16T16C8N8_Loop
+	  mul vf02,vf02,vf07		sq vf09,IN_NORMAL(-1,vi02)
+;;---------
+	nop				jr vi15
+	nop				nop
 
 
 PreprocessSkinV32T32C8N8:
@@ -261,5 +296,6 @@ SkinV32T32C8N8_Loop:
 	nop				iaddiu vi04,vi04,numSkinAttribs
 
 .endif
+;;---------
 	nop				jr vi15
 	nop				nop
