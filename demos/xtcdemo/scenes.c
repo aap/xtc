@@ -8,6 +8,9 @@
 #include <string.h>
 #include <math.h>
 
+// the procgen kit's outputs live with it, see experiments/procgen/README.md
+#define PROCGEN "host:./experiments/procgen/"
+
 #include <libgraph.h>
 #include <sifdev.h>
 
@@ -450,12 +453,12 @@ scenePrimList(void)
 
 	/* record the sphere to a file for the plfile scene */
 	if(joy.press & JOY_CROSS)
-		savePrimList(sphere, "host:./sphere.xpl");
+		savePrimList(sphere, PROCGEN "sphere.xpl");
 }
 
 /*
  * Scene: plfile -- prim lists back from files, possibly made offline
- * (tools/xpl.py).  assets.txt next to the ELF names them, one path per
+ * (experiments/procgen/xpl.py).  assets.txt in that directory names them, one path per
  * line; without it the scene falls back to sphere.xpl, the file the
  * primlist scene's cross button records.  Dpad left/right cycles,
  * cross drops the cache and loads the current one again.
@@ -476,7 +479,7 @@ loadAssetList(void)
 	int fd, n, len;
 
 	numAssets = 0;
-	fd = fioOpen("host:./assets.txt", SCE_RDONLY);
+	fd = fioOpen(PROCGEN "assets.txt", SCE_RDONLY);
 	if(fd < 0) {
 		strcpy(assetName[numAssets++], "sphere.xpl");
 		return;
@@ -516,7 +519,7 @@ scenePlFile(void)
 	if(load && numAssets) {
 		printf("asset %d/%d: %s\n", curAsset+1, numAssets, assetName[curAsset]);
 		if(assetPl[curAsset] == nil) {
-			strcpy(path, "host:./");
+			strcpy(path, PROCGEN);
 			strcat(path, assetName[curAsset]);
 			assetPl[curAsset] = loadPrimList(path);
 		}
@@ -532,7 +535,7 @@ scenePlFile(void)
 /*
  * Scene: town -- prim list instances placed by a textual scene
  * description, host:./town.scene, written by a separate layout program
- * (tools/townplan.py).  This little format is the seed of the
+ * (experiments/procgen/townplan.py).  This little format is the seed of the
  * serialized scene structure:
  *
  *   # comment
@@ -569,7 +572,7 @@ townAsset(const char *name)
 		return -1;
 	i = numTownAssets++;
 	strcpy(townName[i], name);
-	strcpy(path, "host:./");
+	strcpy(path, PROCGEN);
 	strcat(path, name);
 	townPl[i] = loadPrimList(path);
 	return i;
@@ -597,7 +600,7 @@ loadTown(void)
 	int fd, n;
 
 	numInsts = 0;
-	fd = fioOpen("host:./town.scene", SCE_RDONLY);
+	fd = fioOpen(PROCGEN "town.scene", SCE_RDONLY);
 	if(fd < 0) {
 		printf("town: can't open town.scene -> %d\n", fd);
 		return;
@@ -886,7 +889,7 @@ sceneLit(void)
  *   triangle         toggle the ambient
  *   square           toggle the spin
  *   circle           toggle the vertex colours (monkey.inc carries a
- *                    position gradient, see tools/obj2inc.py)
+ *                    position gradient, see experiments/procgen/obj2inc.py)
  */
 
 #include "monkey.inc"
@@ -1041,7 +1044,7 @@ sceneLights(void)
  * Scene: dsm -- prim lists assembled offline.  src/data/monkey_std.dsm
  * (inline batches, the shape the runtime records) on the left and
  * monkey_std_ref.dsm (a DMAref chain into contiguous attribute arrays)
- * on the right, both written by tools/primdsm.py from monkey_col.obj,
+ * on the right, both written by experiments/procgen/primdsm.py from monkey_col.obj,
  * assembled by ee-dvp-as and linked into the ELF.  Same lights and
  * controls as the lights scene.
  */

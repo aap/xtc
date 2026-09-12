@@ -1,0 +1,9 @@
+# repro for the clip-path bug: a coarse ground disc (outer-ring tris
+# ~7x5m) at this exact camera renders a mostly-black frame; the same
+# scene without the ground, or with a finer ground (assets/ground.xpl),
+# is clean.  suspect: clipVertLimitTS handling in im3d.dsm (see TODO).
+# run: tools/pcsx2run.sh -s town ... after copying this over town.scene,
+# or change loadTown's filename.
+cam 44 0.9 0.62
+inst assets/ground_coarse.xpl 0 0 0 0 1
+inst assets/gtemple.xpl 0 19 0 0 1

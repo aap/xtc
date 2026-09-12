@@ -6,3 +6,8 @@ core.*
 # anything else only this machine has.  demos load from local/NAME/ and
 # the chunk rules pick .xm files up from there; see demos/spyro/spyro.c
 local/
+# the procgen kit's outputs: hundreds of MB of generated assets and the
+# reference images; the kit and its small scene files are tracked
+experiments/procgen/assets/
+experiments/procgen/ref/
+__pycache__/

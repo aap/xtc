@@ -2,7 +2,7 @@
 # import.sh -- the Spyro levels from the game into local/spyro/, which is
 # gitignored: nothing of the game goes into the repo, the pipeline does.
 #
-# One host tool does the whole import.  tools/spyroconv.c reads the
+# One host tool does the whole import.  demos/spyro/host/spyroconv.c reads the
 # game's archive -- WAD.WAD on the disc, aap's spyro1.WAD is the same
 # 110 MB file -- and writes world.xm, sky.xm and the tex_NNN.png the
 # materials name.  No librw, no spyroview, no DFFs, no VRAM dump: the

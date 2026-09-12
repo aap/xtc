@@ -8,14 +8,14 @@ by assembling small files and reading the bytes back with
 DMA/VIF pseudo-ops, `man ee-dvp-as` only lists the generic options and
 `sample/graphics/clip_vu1/torus.dsm` only ever uses `4,4,V4_32`.
 
-`tools/primdsm.py` writes these files from geometry; `src/data/*.dsm`
+`experiments/procgen/primdsm.py` writes these files from geometry; `src/data/*.dsm`
 are its output and get assembled by the normal `.dsm` rule (`joinvu`,
 `cpp`, `ee-dvp-as`), so `src/data` is in `SRCDIRS`.  Scene `dsm` in
 `src/scenes.c` draws two of them.
 
 ## Chain shapes
 
-**Inline** (what `xtcpBuildList` records, what `tools/xpl.py` writes):
+**Inline** (what `xtcpBuildList` records, what `experiments/procgen/xpl.py` writes):
 one `DMAcnt` per batch with the vertices in the tag's own transfer, the
 last one a `DMAret`.  Per batch:
 

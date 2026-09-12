@@ -2,7 +2,7 @@
 --[[
 texsim.lua -- what would a texture cache have had to do?
 
-	lua tools/texsim.lua [-pages N] [-sorted] trace.txt
+	lua demos/spyro/host/texsim.lua [-pages N] [-sorted] trace.txt
 
 trace.txt is the console's log with the lines the `trace' argument of
 demos/spyro prints: `bind <pointer> <pages>' for every texture bind of

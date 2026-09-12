@@ -100,149 +100,9 @@ build/crt0.o:
 	@mkdir -p $(@D)
 	$(CC) -c -xassembler-with-cpp -o $@ $(SCELIBDIR)/crt0.s
 
-# chunks: models written as assembler source by tools/xm2dsm.lua and
-# linked into the file the loader wants (tools/chunk.inc, tools/chk.ld).
-# per target like every chunk, but the same for both toolchains.
-#
-# A .xm may come from samples/ (the tracked assets) or from local/, which
-# is gitignored and holds whatever the machine happens to have -- game
-# assets that must not end up in the repo, for one.  Each source gets its
-# own pattern rule below; make picks the one whose .xm exists.  local/ is
-# wildcarded so `make chunks' still works when it is not there.
-CHKDIR := build/chk
-
-# demos/spyro is a viewer of all 35 levels, so there are 70 of these:
-# local/spyro/levels/levelNN/{world,sky}.xm -> build/chk/spyro/
-# levelNN_{world,sky}.chk.  The directory is one level's worth of the
-# name so a pattern rule can do it, and the demo builds the path the
-# same way.  `make -j8 chunks' if you are in a hurry -- it is 70 runs
-# each of the stripper, lua, dvp-as and ld.
-SPYROLVL := $(patsubst local/spyro/levels/%/world.xm,%,\
-	$(wildcard local/spyro/levels/*/world.xm))
-SPYROSKY := $(patsubst local/spyro/levels/%/sky.xm,%,\
-	$(wildcard local/spyro/levels/*/sky.xm))
-SPYROCHK := $(SPYROLVL:%=$(CHKDIR)/spyro/%_world.chk) \
-	$(SPYROSKY:%=$(CHKDIR)/spyro/%_sky.chk)
-
-CHUNKS := $(CHKDIR)/fox.chk $(CHKDIR)/fox_anim.chk $(SPYROCHK)
-
-# the clips demos/fox plays: four standing idles, three sitting, three
-# lying, the alert crouch, and the eight Trans_* clips that get between
-# those four poses.  All of them keep the fox where it is -- the
-# locomotion clips animate RigRoot and would walk it out of frame.
-# samples/ is a submodule, so the cut is made here and not in there.
-FOXCLIPS := \
-	A4_Stand_Breathing_01		\
-	A1_Stand_Idle_02		\
-	A3_Stand_Idle_01		\
-	A2_Stand_Eating_01		\
-	Sitting_Breathing_01		\
-	Sitting_Idle_01			\
-	Sitting_Idle_02			\
-	Lying_Breathing_01		\
-	Lying_Idle_01			\
-	Lying_Idle_02			\
-	A5_StandAngry_Breathing_01	\
-	Trans_Stand_to_Sitting		\
-	Trans_Sitting_to_Stand		\
-	Trans_Stand_to_Lying		\
-	Trans_Lying_to_Stand		\
-	Trans_Sitting_to_Lying		\
-	Trans_Lying_to_Sitting		\
-	Trans_Stand_to_StandAngry	\
-	Trans_StandAngry_to_Stand
-# -nogeo drops the xGeometry from the chunk (then the bounding sphere is
-# a guess), see tools/xm2dsm.lua
-CHKFLAGS :=
-
-chunks: $(CHUNKS) $(CHKDIR)/fox_anim.xan
-
-# keep the strips and the source around for a look
-# keep the fox's strips and source around for a look; the 70 level
-# chunks' intermediates are half a gigabyte and go
-.SECONDARY: $(CHKDIR)/fox.strips $(CHKDIR)/fox.dsm $(CHKDIR)/fox.o $(CHKDIR)/fox_anim.dsm $(CHKDIR)/fox_anim.o
-
-# the stripper runs on the host
-HOSTCXX := g++
-HOSTCC := gcc
-build/host/xstrip: tools/xstrip.cpp common/tristrip.cpp common/tristrip.h
-	@mkdir -p $(@D)
-	$(HOSTCXX) -O2 -Icommon -Isrc_gl -o $@ tools/xstrip.cpp common/tristrip.cpp
-
-# spyroconv turns a Spyro the Dragon (PS1) WAD straight into xtc assets,
-# see demos/spyro/import.sh
-build/host/spyroconv: tools/spyroconv.c src/lodepng.c src/lodepng.h
-	@mkdir -p $(@D)
-	$(HOSTCC) -O2 -Isrc -o $@ tools/spyroconv.c src/lodepng.c -lm
-
-# the converter reads the batch size and the input layout from the
-# microcode, but the chunks must not depend on the microcode files:
-# every edit to the code would regenerate all the geometry.  So the
-# interface is extracted -- the equates the batch size comes from and
-# the input descriptor -- into a file that is only touched when that
-# changes, and the chunks depend on the file.
-PIPEINFO := $(CHKDIR)/pipeinfo.txt
-XM2DSMDEP := tools/xm2dsm.lua $(PIPEINFO)
-
-$(PIPEINFO): src/vu1/stdPipe.dsm
-	@mkdir -p $(@D)
-	@(grep -E '^\.equ (numInAttribs|numOutAttribs|numOutBuf|numSkinAttribs|(std|skin)_(vertexTop|numUnpackAttribs|vertCount)),' $<; \
-	  sed -n '/^std_inputDesc:/,/^$$/p' $<; sed -n '/^skin_inputDesc:/,/^$$/p' $<) > $@.tmp
-	@if cmp -s $@.tmp $@; then rm $@.tmp; echo "pipeinfo unchanged"; else mv $@.tmp $@; echo "pipeinfo changed"; fi
-
-$(CHKDIR)/%.strips: samples/fox/%.xm build/host/xstrip
-	@mkdir -p $(@D)
-	build/host/xstrip -o $@ $<
-
-$(CHKDIR)/%.dsm: samples/fox/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
-	@mkdir -p $(@D)
-	lua tools/xm2dsm.lua -pipes src/vu1 -strips $(CHKDIR)/$*.strips $(CHKFLAGS) $< > $@
-
-# the 35 levels.  The stem is levelNN and the part is in the target's
-# name, so world and sky want a rule each.  The samples/fox rules above
-# would have to find samples/fox/spyro/levelNN_world.xm to be used for
-# one of these, so there is nothing ambiguous about it.
-$(CHKDIR)/spyro/%_world.strips: local/spyro/levels/%/world.xm build/host/xstrip
-	@mkdir -p $(@D)
-	build/host/xstrip -o $@ $<
-
-$(CHKDIR)/spyro/%_world.dsm: local/spyro/levels/%/world.xm \
-		$(CHKDIR)/spyro/%_world.strips $(XM2DSMDEP)
-	@mkdir -p $(@D)
-	lua tools/xm2dsm.lua -pipes src/vu1 \
-		-strips $(CHKDIR)/spyro/$*_world.strips $(CHKFLAGS) $< > $@
-
-$(CHKDIR)/spyro/%_sky.strips: local/spyro/levels/%/sky.xm build/host/xstrip
-	@mkdir -p $(@D)
-	build/host/xstrip -o $@ $<
-
-$(CHKDIR)/spyro/%_sky.dsm: local/spyro/levels/%/sky.xm \
-		$(CHKDIR)/spyro/%_sky.strips $(XM2DSMDEP)
-	@mkdir -p $(@D)
-	lua tools/xm2dsm.lua -pipes src/vu1 \
-		-strips $(CHKDIR)/spyro/$*_sky.strips $(CHKFLAGS) $< > $@
-
-# animation is the same idea without the DMA chains, so no strips and
-# no microcode: tools/xan2dsm.lua straight from the .xan.  Its own
-# pattern, so the %.dsm above does not go looking for a .xm -- and a
-# pattern rather than the explicit rule this used to be, because make
-# will not chain .chk <- .o <- .dsm through an explicit one, so
-# `make chunks' on an empty build/chk never got past the .dsm.
-$(CHKDIR)/%_anim.dsm: samples/fox/%.xan tools/xan2dsm.lua
-	@mkdir -p $(@D)
-	lua tools/xan2dsm.lua -name $*_anim $(addprefix -clip ,$(FOXCLIPS)) $< > $@
-
-# the same clips as text: what the demo falls back to without a chunk,
-# and what tools/xanchkdiff.py checks the chunk against
-$(CHKDIR)/fox_anim.xan: samples/fox/fox.xan tools/xancut.py
-	@mkdir -p $(@D)
-	python3 tools/xancut.py $< $@ $(FOXCLIPS)
-
-$(CHKDIR)/%.o: $(CHKDIR)/%.dsm tools/chunk.inc
-	ee-dvp-as -Itools $< -o $@
-
-$(CHKDIR)/%.chk: $(CHKDIR)/%.o tools/chk.ld
-	ee-ld -T tools/chk.ld -o $@ $<
+# the assets: chunks from .xm/.xan text, the recipes and the variants
+# live in Makefile.assets (the SDK's make knows include)
+include Makefile.assets
 
 $(OBJDIR)/%.o: $(OBJDIR)/%.dsm_x
 	@mkdir -p $(@D)
@@ -371,7 +231,7 @@ $(FSOBJDIR)/%.o: %.cpp
 	@mkdir -p $(@D)
 	$(FSCXX) $(FSFLAGS) $(FSINC) -c $< -o $@
 
-.PHONY: all run freesce chunks clean
+.PHONY: all run freesce chunks variants clean
 
 clean:
 	rm -rf build $(DEMOS:%=%.elf) $(DEMOS:%=%_freesce.elf)

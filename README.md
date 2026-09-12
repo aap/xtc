@@ -38,10 +38,12 @@ similar in spirit to traditional OpenGL.
   them from the ripped game).
 * `src_gl/` -- the OpenGL backend and sketch: the same API on GLFW/glad,
   plus assimp import, a Lua/Fennel driven viewer and demo scripts.
-* `tools/` -- offline tooling: chunks and prim lists as dvp-as source
-  (`chunk.inc`, `chk.ld`, `xm2dsm.lua`, `primdsm.py`, `DSMNOTES.md`),
-  the tri stripper's test bench (`xstrip.cpp`), the xpl asset kit,
-  OBJ helpers, animation cutting, the PCSX2 runner.
+* `tools/` -- what every build uses: the chunk path from `.xm`/`.xan`
+  text (`xm2dsm.lua`, `xan2dsm.lua`, `chunk.inc`, `chk.ld`, `xstrip.cpp`,
+  `DSMNOTES.md`), the microcode tools (`vudiff.sh`, `vumap.lua`), the
+  PCSX2 runner.  The recipes are `Makefile.assets`.
+* `experiments/` -- work kept but not part of the build, each with a
+  README: `procgen/`, the procedural `.xpl` asset kit and the Greek town.
 * `samples/` -- the sample assets, a submodule of
   [xtc-assets](https://github.com/aap/xtc-assets):
   the fox, the skinning test model (38 bones, 69 clips).
@@ -206,7 +208,8 @@ The PC writer (`writeXModelChunk`) produces the same layout,
 with the textures as globals too.
 `make chunks` builds `build/chk/fox.chk` from `samples/fox/fox.xm`,
 which is what the fox scene loads;
-`-nogeo` in `CHKFLAGS` leaves the geometry out and keeps only the chains.
+`-nogeo` (the default `CHKFLAGS`) leaves the geometry out and keeps only
+the chains; see `Makefile.assets` for the switches and the variants.
 
 ### Tri strips
 

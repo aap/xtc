@@ -8,7 +8,7 @@
  *
  *	WAD=/path/to/WAD.WAD demos/spyro/import.sh
  *
- * which is tools/spyroconv.c (every level -> levels/levelNN/{world.xm,
+ * which is demos/spyro/host/spyroconv.c (every level -> levels/levelNN/{world.xm,
  * sky.xm} and its 32x32 palettised tex_NNN.png, which is what the
  * materials name) followed by `make chunks`, which turns each of the 70
  * .xm files into build/chk/spyro/levelNN_{world,sky}.chk.
@@ -182,7 +182,7 @@ camPan(float x, float y)
 static int drawSky = 1;
 static int drawWorld = 1;
 
-/* `trace': print one frame's texture binds, for tools/texsim.lua */
+/* `trace': print one frame's texture binds, for demos/spyro/host/texsim.lua */
 static int traceBinds;
 static void
 bindHook(xtcTexture *tex, int pages)
