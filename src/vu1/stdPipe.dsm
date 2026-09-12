@@ -112,9 +112,6 @@ DMAret *
 MPG 0, *
 .vu
 start:
-
-
-.if 1
 	nop				ilw.x vi12,outBufs(vi00)
 	nop				ilw.y vi13,outBufs(vi00)
 	nop				lq vf28,matrix0(vi00)
@@ -136,6 +133,7 @@ restart:
 	nop				iadd vi03,vi03,vi04
 .endr
 
+	;; execute the UNPACKed pipeline
 	nop				ilw.x vi14,codeSwitch+0(vi00)
 	nop				jalr vi15,vi14
 	nop				nop
@@ -174,46 +172,6 @@ restart:
 	nop				ilw.w vi14,codeSwitch+2(vi00)
 	nop				jalr vi15,vi14
 	nop				nop
-
-
-.else
-
-	nop				ilw.y vi12,codeSwitch(vi00)
-	nop				ilw.z vi13,codeSwitch(vi00)
-	nop				lq vf28,matrix0(vi00)
-	nop				lq vf29,matrix1(vi00)
-	nop				lq vf30,matrix2(vi00)
-	nop				lq vf31,matrix3(vi00)
-	nop				lq vf27,xyzwScale(vi00)
-	nop				lq vf26,xyzwOffset(vi00)
-	nop				lq vf25,colorScale(vi00)
-	nop				lq vf24,clipConsts(vi00)
-restart:
-	;; Calculate end of input buffer with vertex count rounded up to multiple of 4
-	;; Note that the maximum vertex count is always a multiple of 4 so this is always legal
-	nop				xtop vi02			; input pointer
-	nop				xitop vi01			; vertex count
-	nop				iaddiu vi03,vi01,3
-	nop				iaddiu vi04,vi00,~3
-	nop				iand vi04,vi03,vi04		; round up vertex count
-	nop				iadd vi03,vi02,vi04
-.rept numInAttribs-1
-	nop				iadd vi03,vi03,vi04
-.endr
-
-	;; pipeline
-	nop				bal vi15,PreprocessV32T32C8N8
-	nop				nop
-
-	nop				ilw.w vi15,lightBase(vi00)	; light switch
-	nop				jalr vi15,vi15
-	nop				nop
-
-	nop				ilw.x vi09,codeSwitch(vi00)	; process switch
-	nop				jr vi09
-	nop				nop
-
-.endif
 
 #include "std_preproc.vu"
 #include "std_lighting.vu"
