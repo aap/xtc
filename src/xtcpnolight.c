@@ -59,8 +59,8 @@ upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 
 extern xtcMicrocode xtcCodeNolight;
 
-static xtcPipeline pipe = {
+xtcPipeline xtcNolightPipeline = {
 	upload,
 	&xtcCodeNolight,
 };
-xtcPipeline *nolightPipeline = &pipe;
+xtcPipeline *nolightPipeline = &xtcNolightPipeline;

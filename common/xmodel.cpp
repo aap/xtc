@@ -622,6 +622,7 @@ loadXModelText(char *text, uint32 size)
 	int nv, nn, nt, nc, ni, nw, nx, nb;
 
 	mdl = (xModel*)emalloc(sizeof(xModel));
+	memset(mdl, 0, sizeof(xModel));
 
 	while(readLine(&tr, line, sizeof(line))) {
 		ntok = tokenize(line, tokens, 1000);
@@ -1028,6 +1029,11 @@ nodeBounds(xNode *n, const Mat4 &parent, xSkeleton *skel, Vec3 *bmin, Vec3 *bmax
 void
 xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius)
 {
+	if(mdl->sphere[3] > 0.0f) {
+		*center = vec3(mdl->sphere[0], mdl->sphere[1], mdl->sphere[2]);
+		*radius = mdl->sphere[3];
+		return;
+	}
 	Vec3 bmin = vec3(1e30f, 1e30f, 1e30f), bmax = vec3(-1e30f, -1e30f, -1e30f);
 	nodeBounds(mdl->root, m4ident(), mdl->skel, &bmin, &bmax);
 	if(bmin.x > bmax.x) {
@@ -1037,6 +1043,8 @@ xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius)
 	}
 	*center = (bmin + bmax) * 0.5f;
 	*radius = v3norm(bmax - bmin) * 0.5f;
+	mdl->sphere[0] = center->x; mdl->sphere[1] = center->y; mdl->sphere[2] = center->z;
+	mdl->sphere[3] = *radius;
 }
 
 
@@ -1333,6 +1341,17 @@ xModel*
 loadXModelChunk(FILE *f)
 {
 	return (xModel*)loadChunk(f, xModelResolve);
+}
+
+xModel*
+xModelLinked(xModel *mdl)
+{
+	for(int i = 0; i < mdl->numMaterials; i++) {
+		xTexture *t = mdl->materials[i]->tex;
+		if(t && t->tex == nil && t->name)
+			t->tex = readTexturePNG(t->name);
+	}
+	return mdl;
 }
 
 

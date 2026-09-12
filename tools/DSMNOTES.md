@@ -201,6 +201,30 @@ The fox comes out within half a step everywhere (8e-6 of a 1.05 extent,
 prints the VU memory a microcode's equates describe, plain and clipping
 entry, with the gaps.
 
+## Linked into the ELF
+
+`xm2dsm.lua -link` and `xan2dsm.lua -link` write an object instead of a
+chunk: `.section .data` first (the bare `.data` directive is what
+dvp-as intercepts, and lands everything in `.vudata`, which the freesce
+linker script does not place), pointers as `.int symbol`, refs as
+`DMAref qwc, symbol+offset` (an `R_MIPS_DVP_27_S4` the linker resolves,
+both toolchains), the prim list's pipeline as `.int xtcStdPipeline` or
+`xtcSkinPipeline` (the objects behind `stdPipeline`/`skinPipeline`,
+declared in common/xtc.h), a texture as an xTexture record with its
+name and a zero pointer that `xModelLinked()` fills by reading the PNG.
+No header, no fixup table, no globals; the loader never sees it.  A demo
+links `build/chk/NAME_ld.o` (`FOX_LINKED` in the Makefile) and declares
+
+    extern xModel fox_model __attribute__((section(".data")));
+
+the attribute because gcc assumes an extern object of 8 bytes or less
+(an xAnimList is 8) sits in small data and addresses it off gp, which
+cannot reach `.data`: "relocation truncated to fit: R_MIPS_GPREL16".
+`-G0` would do the same for everything.  The xModel carries its
+bounding sphere now (`sphere[4]`, measured by xm2dsm the way nodeBounds
+would), so a model without geometry still frames.  The fox ELF with
+its model and 19 clips inside is 2.9 MB, 1.2 MB of that the clips.
+
 ## One program, two layouts
 
 `stdPipe.dsm` is the std and the skin pipe: the code once, resident,

@@ -8,6 +8,7 @@
 #	model.dsm --dvp-as-->  model.o             with tools/chunk.inc
 #	model.o   --ld------>  model.chk           the file, with tools/chk.ld
 #	anim.xan  --xan2dsm--> anim.dsm -> .o -> anim.chk   (tools/xan2dsm.lua)
+#	model.xm  --xm2dsm -link--> model_ld.dsm -> model_ld.o   linked into the ELF
 #
 # The .xm/.xan text comes from the GL sketch's converter (src_gl, assimp)
 # or from a converter of your own (demos/spyro/host/spyroconv.c); samples/
@@ -19,6 +20,11 @@
 #	-quant      16 bit positions and texcoords       default: no
 # (*) Spyro keeps its geometry: the demo measures the level's bounding
 # sphere for the camera, and without geometry that is the unit sphere.
+#
+# A demo that wants its assets inside the ELF links the _ld objects
+# (the fox: FOX_LINKED in the Makefile) and uses xModelLinked() on the
+# symbol instead of loadXModel() on a file: no header, no fixups, the
+# linker resolves the pointers and the DMA refs.
 #
 # The variants of an example asset are named by letters, in this order:
 # L list or S strips, Q quantized, G with geometry.  fox_SQ.chk is the
@@ -121,6 +127,14 @@ $(CHKDIR)/%.strips: samples/fox/%.xm build/host/xstrip
 $(CHKDIR)/%.dsm: samples/fox/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
 	@mkdir -p $(@D)
 	lua tools/xm2dsm.lua -pipes src/vu1 -strips $(CHKDIR)/$*.strips $(CHKFLAGS) $< > $@
+
+# linked into the ELF: the same, as an object with plain relocations
+$(CHKDIR)/%_ld.dsm: samples/fox/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
+	@mkdir -p $(@D)
+	lua tools/xm2dsm.lua -pipes src/vu1 -link -name $*_model -strips $(CHKDIR)/$*.strips $(CHKFLAGS) $< > $@
+$(CHKDIR)/%_anim_ld.dsm: samples/fox/%.xan tools/xan2dsm.lua
+	@mkdir -p $(@D)
+	lua tools/xan2dsm.lua -link -name $*_anim $(addprefix -clip ,$(FOXCLIPS)) $< > $@
 
 # the permutations of the example assets, one rule per letter set (the
 # SDK's make has no $(eval)); the generic %.dsm rule above does not match

@@ -47,8 +47,8 @@ upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 
 extern xtcMicrocode xtcCode2D;
 
-static xtcPipeline pipe = {
+xtcPipeline xtcTwodPipeline = {
 	upload,
 	&xtcCode2D,
 };
-xtcPipeline *twodPipeline = &pipe;
+xtcPipeline *twodPipeline = &xtcTwodPipeline;

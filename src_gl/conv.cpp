@@ -2,6 +2,7 @@
  * assimp scene -> xModel / xAnimList
  */
 
+#include <string.h>
 #include "xtc.h"
 #include "xmodel.h"
 #include <assert.h>
@@ -398,6 +399,7 @@ convertAssimpScene(const aiScene *scene)
 	xModel *mdl;
 
 	mdl = (xModel*)malloc(sizeof(xModel));
+	memset(mdl, 0, sizeof(xModel));
 
 	mdl->numMeshes = scene->mNumMeshes;
 	mdl->numMaterials = scene->mNumMaterials;

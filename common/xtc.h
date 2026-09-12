@@ -130,6 +130,10 @@ extern xtcPipeline *nolightPipeline;	// vertex colours as they are
 extern xtcPipeline *defaultPipeline;	// RenderWare style lighting, xtcRwMaterial
 extern xtcPipeline *stdPipeline;	// GL/PSP style lighting, xtcStdMaterial
 extern xtcPipeline *skinPipeline;	// std plus skinning
+// the objects behind them, for data linked into the ELF (xm2dsm -link
+// writes .int xtcStdPipeline into a prim list); PS2 only
+extern xtcPipeline xtcTwodPipeline, xtcNolightPipeline, xtcDefaultPipeline,
+	xtcStdPipeline, xtcSkinPipeline;
 
 void xtcSetPipeline(xtcPipeline *pipe);
 

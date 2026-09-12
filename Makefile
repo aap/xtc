@@ -90,8 +90,10 @@ xtcdemo.elf: build/crt0.o $(COMMONOBJ) $(XTCDEMO_OBJ)
 	$(call linksce,$(XTCDEMO_OBJ))
 spyro.elf: build/crt0.o $(COMMONOBJ) $(SPYRO_OBJ)
 	$(call linksce,$(SPYRO_OBJ))
-fox.elf: build/crt0.o $(COMMONOBJ) $(FOX_OBJ)
-	$(call linksce,$(FOX_OBJ))
+# the fox carries its model and its clips inside the ELF (Makefile.assets)
+FOX_LINKED = $(CHKDIR)/fox_ld.o $(CHKDIR)/fox_anim_ld.o	# CHKDIR comes with Makefile.assets, so deferred
+fox.elf: build/crt0.o $(COMMONOBJ) $(FOX_OBJ) $(FOX_LINKED)
+	$(call linksce,$(FOX_OBJ) $(FOX_LINKED))
 
 run: xtcdemo.elf
 	dsedb -r run xtcdemo.elf
@@ -206,8 +208,8 @@ xtcdemo_freesce.elf: $(FSOBJ) $(FS_XTCDEMO_OBJ)
 	$(call linkfs,$(FS_XTCDEMO_OBJ))
 spyro_freesce.elf: $(FSOBJ) $(FS_SPYRO_OBJ)
 	$(call linkfs,$(FS_SPYRO_OBJ))
-fox_freesce.elf: $(FSOBJ) $(FS_FOX_OBJ)
-	$(call linkfs,$(FS_FOX_OBJ))
+fox_freesce.elf: $(FSOBJ) $(FS_FOX_OBJ) $(FOX_LINKED)
+	$(call linkfs,$(FS_FOX_OBJ) $(FOX_LINKED))
 
 # freesce's ee-dvp-as is binutils 2.9 and has neither -stalls-pipeline nor
 # -no-fetching. Both are warning options -- hazard reporting, not codegen --

@@ -6,7 +6,8 @@ the top; the things that were experiments live under `experiments/`.
 Assets (the chunk path, `.xm`/`.xan` text to what a demo loads):
 
 * `xm2dsm.lua` -- an `.xm` model as dvp-as source: the xModel structs, the
-  prim lists as ref chains, `-strips`, `-nogeo`, `-quant`.
+  prim lists as ref chains, `-strips`, `-nogeo`, `-quant`; `-link` for an
+  object linked straight into the ELF (DSMNOTES: Linked into the ELF).
 * `xan2dsm.lua` -- an `.xan` animation list the same way.
 * `xancut.py` -- cut an `.xan` down to named clips; `xanchkdiff.py` checks
   an animation chunk against its text.

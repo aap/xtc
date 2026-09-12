@@ -127,6 +127,11 @@ STRUCT(xModel) {
 	// Should be gotten from one of the nodes.
 	// Used to render skinned meshes
 	xSkeleton *skel;
+
+	// the bind pose's bounding sphere, centre and radius: measured by
+	// the converter (xm2dsm) so a model without geometry has one; 0
+	// until xModelBoundingSphere measures the geometry
+	float sphere[4];
 };
 
 
@@ -135,6 +140,9 @@ void writeXModel(FILE *f, xModel *mdl);
 void writeXModelChunk(FILE *f, xModel *mdl);
 xModel *loadXModel(const char *path);
 xModel *loadXModelChunk(FILE *f);
+// a model linked into the ELF (xm2dsm -link): the linker resolved every
+// pointer, this reads the textures by name.  never freed
+xModel *xModelLinked(xModel *mdl);
 // only a model loadXModel read from a chunk; a model read from text
 // keeps its prim lists, which no backend can give back
 void freeXModel(xModel *mdl);

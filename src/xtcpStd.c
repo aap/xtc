@@ -424,16 +424,16 @@ upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 #endif
 }
 
-static xtcPipeline pipe = {
+xtcPipeline xtcStdPipeline = {
 	upload,
 	&xtcCodeStd,
 };
-xtcPipeline *stdPipeline = &pipe;
+xtcPipeline *stdPipeline = &xtcStdPipeline;
 
 // the same upload with the skin microcode; the bone matrices are not
 // uploaded yet, the code doesn't read them yet either
-static xtcPipeline skinPipe = {
+xtcPipeline xtcSkinPipeline = {
 	upload,
 	&xtcCodeStdSkin,
 };
-xtcPipeline *skinPipeline = &skinPipe;
+xtcPipeline *skinPipeline = &xtcSkinPipeline;

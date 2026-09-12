@@ -126,6 +126,13 @@ static xAnimation *foxIdles[FOX_NUMPOSES][FOX_MAXIDLE];
 static int foxNumIdles[FOX_NUMPOSES];
 static xAnimation *foxEdgeClips[FOX_NUMEDGES];
 
+/* the model and the clips, linked into the ELF: build/chk/fox_ld.o and
+ * fox_anim_ld.o from samples/fox (Makefile.assets, xm2dsm -link).  The
+ * section attribute matters: gcc takes an extern object of 8 bytes or
+ * less for small data and addresses it off gp, and the assembler put
+ * it in .data, out of reach -- "relocation truncated to fit" */
+extern xModel fox_model __attribute__((section(".data")));
+extern xAnimList fox_anim __attribute__((section(".data")));
 static xModel *fox;
 static xAnimList *foxAnims;
 static xAnimPlayer *foxPlayer;
@@ -473,14 +480,10 @@ foxInit(void)
 		return;
 	foxLoaded = 1;
 	texpath = "host:./samples/fox/textures_ps2";
-	/* the chunk the assembler linked (make chunks), else the text */
-	fox = loadXModel("host:./build/chk/fox.chk");
-	if(fox == nil)
-		fox = loadXModel("host:./samples/fox/fox.xm");
-	if(fox == nil) {
-		printf("fox: no model\n");
-		return;
-	}
+	/* the model and the clips are linked into the ELF (xm2dsm -link,
+	 * Makefile.assets): no file to open, the linker resolved the
+	 * pointers, only the textures are read by name */
+	fox = xModelLinked(&fox_model);
 	buildXModel(fox);
 	xModelBoundingSphere(fox, &center, &radius);
 	/* a three quarter view from a little above, the fox centred */
@@ -498,13 +501,7 @@ foxInit(void)
 	printf("fox: %d meshes, %d bones, radius %g\n", fox->numMeshes,
 		fox->skel ? fox->skel->numBones : 0, radius);
 
-	foxAnims = loadXAnimList("host:./build/chk/fox_anim.chk");
-	if(foxAnims == nil)
-		foxAnims = loadXAnimList("host:./build/chk/fox_anim.xan");
-	if(foxAnims == nil) {
-		printf("fox: no animation\n");
-		return;
-	}
+	foxAnims = &fox_anim;
 	printf("fox: %d animations\n", foxAnims->numAnims);
 	foxPlayer = xAnimPlayerCreate(fox);
 	foxResolveClips();

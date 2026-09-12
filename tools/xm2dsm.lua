@@ -1,9 +1,12 @@
 #!/usr/bin/env lua
 --[[
-xm2dsm.lua -- an .xm model as dvp-as source, to be linked into a chunk.
+xm2dsm.lua -- an .xm model as dvp-as source: a chunk file, or with
+-link an object linked straight into the ELF (no header, no fixups, the
+pipeline is the symbol xtcStdPipeline/xtcSkinPipeline, textures are
+read by name by xModelLinked at run time).
 
 	lua tools/xm2dsm.lua [-pipes src/vu1] [-name SYM] [-strips model.strips]
-	                     [-nogeo] [-quant] model.xm > model.dsm
+	                     [-nogeo] [-quant] [-link] model.xm > model.dsm
 	ee-dvp-as -Itools model.dsm -o model.o
 	ee-ld -T tools/chk.ld -o model.chk model.o
 
@@ -31,6 +34,7 @@ local path = nil
 local stripsPath = nil
 local noGeo = false
 local quantFlag = false	-- -quant: 16 bit positions and texcoords
+local linkFlag = false	-- -link: an object for the ELF, not a chunk file
 
 local args = {...}
 local i = 1
@@ -41,11 +45,12 @@ while i <= #args do
 	elseif a == "-strips" then stripsPath = args[i+1]; i = i + 2
 	elseif a == "-nogeo" then noGeo = true; i = i + 1
 	elseif a == "-quant" then quantFlag = true; i = i + 1
+	elseif a == "-link" then linkFlag = true; i = i + 1
 	elseif a:sub(1, 1) == "-" then error("unknown option " .. a)
 	else path = a; i = i + 1 end
 end
 if not path then
-	io.stderr:write("usage: xm2dsm.lua [-pipes DIR] [-name SYM] [-strips F] [-nogeo] [-quant] model.xm > model.dsm\n")
+	io.stderr:write("usage: xm2dsm.lua [-pipes DIR] [-name SYM] [-strips F] [-nogeo] [-quant] [-link] model.xm > model.dsm\n")
 	os.exit(1)
 end
 if not symName then
@@ -300,7 +305,9 @@ local function emitMatrix(m)
 end
 
 local function emitPtr(sym)
-	if sym then emitf("\tptr %s", sym) else emit("\t.int 0") end
+	if not sym then emit("\t.int 0")
+	elseif linkFlag then emitf("\t.int %s", sym)
+	else emitf("\tptr %s", sym) end
 end
 
 -- one string pool, deduplicated
@@ -476,10 +483,15 @@ local function emitPrimList(sym, mesh, pipe, strip)
 		emitf("; batch %d: vertices %d..%d", b - 1, bt.base, bt.base + bt.count - 1)
 		for a, at in ipairs(pipe.attribs) do
 			local qwc = (bt.count * at.size + 15) // 16
-			emitf("chkref %d, %s_%s+%d", qwc, sym, at.usage, offsets[a][b])
+			emitf(linkFlag and "DMAref %d, %s_%s+%d" or "chkref %d, %s_%s+%d", qwc, sym, at.usage, offsets[a][b])
 			emit(a == 1 and string.format("stcycl 1, %d", pipe.stride) or "vifnop")
-			emitf("unpackref 0x%02X, 0x%04X, %d\t; unpack[r%s] %s, %d",
-				at.cmd, at.imm, bt.count, at.usn and "u" or "", at.name, at.offset)
+			if linkFlag then
+				emitf(".int 0x%08X\t; unpack[r%s] %s, %d", (at.cmd << 24) | (bt.count << 16) | at.imm,
+					at.usn and "u" or "", at.name, at.offset)
+			else
+				emitf("unpackref 0x%02X, 0x%04X, %d\t; unpack[r%s] %s, %d",
+					at.cmd, at.imm, bt.count, at.usn and "u" or "", at.name, at.offset)
+			end
 		end
 		emit(lastBatch and "DMAret *" or "DMAcnt *")
 		emitf("itop %d", bt.count)
@@ -513,7 +525,8 @@ local function emitMaterial(sym, mat, k)
 	if mat.tex then
 		label(sym .. "_tex", "xTexture")
 		emitPtr(str(mat.tex))
-		emitf('\tglobal "texture", "%s"', mat.tex)
+		if linkFlag then emit("\t.int 0\t; the xtcTexture, xModelLinked reads it by name")
+		else emitf('\tglobal "texture", "%s"', mat.tex) end
 		emit(".align 4")
 	end
 end
@@ -527,7 +540,8 @@ local function emitMesh(sym, mesh, k, pipes, strip)
 	emitPtr(skinned and sym .. "_skin")
 
 	label(sym .. "_prims", "xtcPrimList")
-	emitf('\tglobal "pipeline", "%s"', skinned and "skin" or "std")
+	if linkFlag then emitf("\t.int %s", skinned and "xtcSkinPipeline" or "xtcStdPipeline")
+	else emitf('\tglobal "pipeline", "%s"', skinned and "skin" or "std") end
 	emit(strip and "\t.int 4\t; XTC_TRISTRIP" or "\t.int 3\t; XTC_TRILIST")
 	emit("\t.int 0\t; size, only the runtime's dumps want it")
 	emitPtr(sym .. "_chain")
@@ -587,6 +601,72 @@ end
 -- nodes get numbered in file order; bones refer to them by name
 local nodeSyms = {}
 local nodeList = {}
+-- the bounding sphere the runtime would measure from the geometry
+-- (nodeBounds in common/xmodel.cpp: every mesh under its node's world
+-- transform, a skinned mesh through its bones), stored so a chunk without
+-- geometry has one.  the matrix rows are the axes and the translation
+local function xformPoint(m, v)
+	return { v[1]*m[1] + v[2]*m[4] + v[3]*m[7] + m[10],
+	         v[1]*m[2] + v[2]*m[5] + v[3]*m[8] + m[11],
+	         v[1]*m[3] + v[2]*m[6] + v[3]*m[9] + m[12] }
+end
+local function xformCompose(parent, local_)
+	local r = {}
+	for k = 0, 2 do
+		local a = { local_[3*k+1], local_[3*k+2], local_[3*k+3] }
+		local w = { a[1]*parent[1] + a[2]*parent[4] + a[3]*parent[7],
+		            a[1]*parent[2] + a[2]*parent[5] + a[3]*parent[8],
+		            a[1]*parent[3] + a[2]*parent[6] + a[3]*parent[9] }
+		r[3*k+1], r[3*k+2], r[3*k+3] = w[1], w[2], w[3]
+	end
+	local t = xformPoint(parent, { local_[10], local_[11], local_[12] })
+	r[10], r[11], r[12] = t[1], t[2], t[3]
+	return r
+end
+local IDENTITY = { 1,0,0, 0,1,0, 0,0,1, 0,0,0 }
+local function modelSphere(mdl)
+	local lo, hi = { 1e30, 1e30, 1e30 }, { -1e30, -1e30, -1e30 }
+	local function walk(node, parent)
+		local world = xformCompose(parent, node.xform or IDENTITY)
+		for _, mi in ipairs(node.meshes or {}) do
+			local mesh = mdl.meshes[mi + 1]
+			-- a skinned vertex where the skeleton's matrices put it:
+			-- sum of w * bone * inverseBind * v, the bone's file matrix
+			local bones = {}
+			if mesh.skin then
+				for b = 1, mesh.skin.numBones do
+					bones[b] = xformCompose(mdl.skel.bones[b].m, mesh.skin.inv[b])
+				end
+			end
+			for vi, v in ipairs(mesh.v) do
+				local p
+				if mesh.skin then
+					p = { 0, 0, 0 }
+					for k = 1, 4 do
+						local w = mesh.skin.w[vi][k]
+						if w > 0 then
+							local q = xformPoint(bones[mesh.skin.i[vi][k] + 1], v)
+							p[1], p[2], p[3] = p[1] + w*q[1], p[2] + w*q[2], p[3] + w*q[3]
+						end
+					end
+				else
+					p = xformPoint(world, v)
+				end
+				for k = 1, 3 do
+					if p[k] < lo[k] then lo[k] = p[k] end
+					if p[k] > hi[k] then hi[k] = p[k] end
+				end
+			end
+		end
+		for _, c in ipairs(node.children) do walk(c, world) end
+	end
+	walk(mdl.root, IDENTITY)
+	if lo[1] > hi[1] then return { 0, 0, 0, 1 } end
+	local c = { (lo[1]+hi[1])/2, (lo[2]+hi[2])/2, (lo[3]+hi[3])/2 }
+	local d = { hi[1]-lo[1], hi[2]-lo[2], hi[3]-lo[3] }
+	return { c[1], c[2], c[3], math.sqrt(d[1]*d[1] + d[2]*d[2] + d[3]*d[3]) / 2 }
+end
+
 local function numberNodes(node)
 	nodeList[#nodeList+1] = node
 	node.sym = string.format("%s_node%d", symName, #nodeList - 1)
@@ -664,15 +744,23 @@ if quantFlag then quantizePipe(pipes.std); quantizePipe(pipes.skin) end
 	local strips = stripsPath and readStrips(stripsPath) or {}
 	numberNodes(mdl.root)
 
-	emitf("; %s as an xtc chunk, generated by tools/xm2dsm.lua from %s%s%s", symName, path,
+	emitf("; %s as an xtc %s, generated by tools/xm2dsm.lua from %s%s%s", symName,
+		linkFlag and "object for the ELF" or "chunk", path,
 		stripsPath and " with strips from " .. stripsPath or "", noGeo and ", no geometry" or "")
 	emitf("; %d materials, %d meshes, %d nodes%s", #mdl.materials, #mdl.meshes, #nodeList,
 		mdl.skel and string.format(", %d bones", mdl.skel.numBones) or "")
 	emit("")
-	emit('.include "chunk.inc"')
-	emit("chkheader")
-	emit("")
-	emit(".data")
+	if linkFlag then
+		-- an object for the ELF: plain data, the linker resolves every
+		-- pointer and every ref.  .section .data, not .data, which dvp-as
+		-- intercepts (it would land in .vudata)
+		emit(".section .data")
+	else
+		emit('.include "chunk.inc"')
+		emit("chkheader")
+		emit("")
+		emit(".data")
+	end
 	emit(".align 4")
 	emitf(".global %s", symName)
 	emitf("%s:\t; xModel", symName)
@@ -681,6 +769,7 @@ if quantFlag then quantizePipe(pipes.std); quantizePipe(pipes.skin) end
 	emitPtr(symName .. "_materials")
 	emitPtr(mdl.root.sym)
 	emitPtr(mdl.skel and mdl.skelNode.sym .. "_skel")
+	emitf("\t.float %s\t; bounding sphere: centre, radius", floats(modelSphere(mdl)))
 	emit(".align 4")
 
 	label(symName .. "_meshes", "xMesh *[]")

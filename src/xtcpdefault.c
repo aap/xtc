@@ -73,8 +73,8 @@ upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 
 extern xtcMicrocode xtcCodeDefault;
 
-static xtcPipeline pipe = {
+xtcPipeline xtcDefaultPipeline = {
 	upload,
 	&xtcCodeDefault,
 };
-xtcPipeline *defaultPipeline = &pipe;
+xtcPipeline *defaultPipeline = &xtcDefaultPipeline;

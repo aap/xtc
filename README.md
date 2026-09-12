@@ -210,6 +210,8 @@ with the textures as globals too.
 which is what the fox scene loads;
 `-nogeo` (the default `CHKFLAGS`) leaves the geometry out and keeps only
 the chains; see `Makefile.assets` for the switches and the variants.
+With `-link` the same data is an object linked straight into the ELF,
+no file and no loader: the fox demo carries its model and clips that way.
 
 ### Tri strips
 
