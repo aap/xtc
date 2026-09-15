@@ -1,0 +1,279 @@
+;; multiply quaternions A B, result in R
+;; use T for tmp
+QuatMult:		;; 9
+	mul T,A,B			nop
+	opmula.xyz acc,A,B		nop
+	maddaw.xyz acc,A,B		nop
+	maddaw.xyz acc,B,A		nop
+	opmsub.xyz R,B,A		nop
+	mulaw.w acc,vf00,T		nop
+	msubax.w acc,vf00,T		nop
+	msubay.w acc,vf00,T		jr vi15
+	msubz.w R,vf00,T		nop
+
+;; Dual quaternion version
+DQuatMult:		;; 25
+	;; plain product for real quaternion
+	mul T,A0,B0			nop
+	opmula.xyz acc,A0,B0		nop
+	maddaw.xyz acc,A0,B0		nop
+	maddaw.xyz acc,B0,A0		nop
+	opmsub.xyz R0,B0,A0		nop
+	mulaw.w acc,vf00,T		nop
+	msubax.w acc,vf00,T		nop
+	msubay.w acc,vf00,T		nop
+	msubz.w R0,vf00,T		nop
+	;; sum of cross terms
+	mul T,A0,B1			nop
+	mul TT,A1,B0			nop
+	opmula.xyz acc,A0,B1		nop
+	maddaw.xyz acc,A0,B1		nop
+	maddaw.xyz acc,B1,A0		nop
+	opmsub.xyz R1,B1,A0		nop
+	add T,T,TT			nop
+	opmula.xyz acc,A1,B0		nop
+	maddaw.xyz acc,A1,B0		nop
+	maddaw.xyz acc,B0,A1		nop
+	maddaw.xyz acc,R1,vf00		nop
+	opmsub.xyz R1,B0,A1		nop
+	mulaw.w acc,vf00,T		nop
+	msubax.w acc,vf00,T		nop
+	msubay.w acc,vf00,T		jr vi15
+	msubz.w R1,vf00,T		nop
+
+
+;; apply normalized quaternion A to vector U, result in R
+;; use T and TT for tmp
+;;	[AUA†]xyz= U + 2*(Aw*(Axyz×U) + Axyz×(Axyz×U))
+QuatSandwich:		;; 11 (9 used)
+	opmula.xyz acc,A,U		nop
+	opmsub.xyz T,U,A		nop
+	nop				nop
+	add.w T,A,A			nop
+	add.w TT,vf00,vf00		nop
+	opmula.xyz acc,A,T		nop
+	opmsub.xyz TT,T,A		nop
+	nop				nop
+	mulaw.xyz acc,U,vf00		nop
+	maddaw.xyz acc,T,T		jr vi15
+	maddw.xyz R,TT,TT		nop
+
+;; Dual quaternion version with U.w as projective coordinate
+DQuatSandwich:		;; 15
+	opmula.xyz acc,A,B		nop
+	maddaw.xyz acc,B,A		nop
+	msubaw.xyz acc,A,B		nop
+	opmsub.xyz TR,B,A		nop
+	opmula.xyz acc,A,U		nop
+	opmsub.xyz T,U,A		nop
+	add.w R,U,U			nop
+	add.w T,A,A			nop
+	add.w TT,vf00,vf00		nop
+	opmula.xyz acc,A,T		nop
+	opmsub.xyz TT,T,A		nop
+	mulaw.xyz acc,TR,R		nop
+	maddaw.xyz acc,U,vf00		move.w R,U
+	maddaw.xyz acc,T,T		jr vi15
+	maddw.xyz R,TT,TT		nop
+
+
+;; convert quaternion A to SO(3) matrix in M[XYZ]
+;; use T, TM and TP for tmp
+;; expect [2,2,2,?] in Two
+QuatMatrix:		;; 17
+	mul T,A,A			nop
+	;; off-diagonal matrix elements
+	opmula.xyz acc,A,A		mr32.w MX,vf00
+	maddw.xyz TP,A,A		mr32.w MY,vf00
+	msubw.xyz TM,A,A		mr32.w MZ,vf00
+	;; diagonal matrix elements - result in acc
+	addaw acc,vf00,vf00		nop
+	msubax.yz acc,Two,T		nop
+	msubay.zx acc,Two,T		nop
+	msubaz.xy acc,Two,T		nop
+	;; build matrix
+	madd.x MX,vf00,vf00		nop
+	mulz.y MX,Two,TP		nop
+	muly.z MX,Two,TM		nop
+	mulz.x MY,Two,TM		nop
+	madd.y MY,vf00,vf00		nop
+	mulx.z MY,Two,TP		nop
+	muly.x MZ,Two,TP		nop
+	mulx.y MZ,Two,TM		jr vi15
+	madd.z MZ,vf00,vf00		nop
+
+;; Dual quaternion version
+DQuatMatrix:		;; 22
+	;; translation
+	opmula.xyz acc,A,B		nop
+	maddaw.xyz acc,B,A		nop
+	msubaw.xyz acc,A,B		nop
+	opmsub.xyz TT,B,A		nop
+	mul T,A,A			nop
+	;; off-diagonal matrix elements
+	opmula.xyz acc,A,A		nop
+	maddw.xyz TP,A,A		nop
+	msubw.xyz TM,A,A		nop
+	;; diagonal matrix elements - result in acc
+	addaw acc,vf00,vf00		mr32.w MX,vf00
+	msubax.yz acc,Two,T		mr32.w MY,vf00
+	msubay.zx acc,Two,T		mr32.w MZ,vf00
+	msubaz.xy acc,Two,T		move.w MW,vf00
+	;; build matrix
+	madd.x MX,vf00,vf00		nop
+	mulz.y MX,Two,TP		nop
+	muly.z MX,Two,TM		nop
+	mulz.x MY,Two,TM		nop
+	madd.y MY,vf00,vf00		nop
+	mulx.z MY,Two,TP		nop
+	muly.x MZ,Two,TP		nop
+	mulx.y MZ,Two,TM		nop
+	madd.z MZ,vf00,vf00		jr vi15
+	mul.xyz MW,TT,Two		nop
+
+
+
+;; sketch: DQuat skinning loop
+;; RNR†= N|R|^2 + 2*(Rs*(Rv×N) + Rv×(Rv×N))
+;; (R + εT)(1 + εU)(R† - εT†)
+;; = RR† + ε(2*vec(TR†) + RUR†)
+;; = |R|^2 + 2ε(Tv*Rs - Rv*Ts + Rv×Tv) + εRUR†
+;; = |R|^2(1 + εU) + 2ε(Tv*Rs - Rv*Ts + Rv×Tv + Rs*(Rv×U) + Rv×(Rv×U)
+
+;; UU   = Rv×U
+;; NN   = Rv×N
+;; vf01 = Rv×Tv
+;; vf02 = Rv×(Rv×U) + Rs*(Rv×U)
+;; vf03 = Rv×(Rv×N) + Rs*(Rv×N)
+;; N' = N|R|^2 + 2*(Rs*(Rv×N) + Rv×(Rv×N))
+;;    = N|R|^2 + 2*vf03
+;; U' = |R|^2(1 + εU) + 2ε(Tv*Rs - Rv*Ts + Rv×Tv + Rs*(Rv×U) + Rv×(Rv×U))
+;;    = |R|^2(1 + εU) + 2ε(Tv*Rs - Rv*Ts + vf01 + vf02)
+
+DQuatSkin:
+	nop				loi 0.007874015748031496
+	nop				xtop vi04
+DQuatSkinLoop:
+	nop				lq vf08,US_NORMAL(0,vi04)
+	nop				lq vf07,US_RGBA(0,vi04)
+	nop				lq vf05,US_VERTEX(0,vi04)
+	nop				lq vf06,US_UV(0,vi04)
+	iotf0 vf08,vf08			lq vf09,US_SKIN(0,vi04)
+
+	itof0 vf07,vf07			ilw.x vi05,US_SKIN(0,vi04)
+	nop				ilw.y vi06,US_SKIN(0,vi04)
+	nop				ilw.z vi07,US_SKIN(0,vi04)
+	muli vf08,vf08,i		ilw.w vi08,US_SKIN(0,vi04)
+
+;; vf10-	R0-R3	or just 4, reload R0-R3 with dual component
+;;     -vf17	TR0-TR3
+;; vf05		U
+;; vf07		rgba
+;; vf08		N
+;; vf09		W
+;; vf18		R
+;; vf19		T
+;; 		RR	very tmp, vf03 too?
+;; vf02 too	UU
+;; vf03 too	NN
+;; vf06 and vf07 might be reused too
+
+	nop				lq R0,boneXform+0(vi05)
+	nop				lq R1,boneXform+0(vi06)
+	nop				lq R2,boneXform+0(vi07)
+	nop				lq R3,boneXform+0(vi08)
+	mulax acc,R0,W			lq TR0,boneXform+1(vi05)
+	madday acc,R1,W			lq TR1,boneXform+1(vi06)
+	maddaz acc,R2,W			lq TR2,boneXform+1(vi07)
+	maddw R,R3,W			lq TR3,boneXform+1(vi08)
+	mulax acc,TR0,W			sq vf06,IN_UV(0,vi02)
+	madday acc,TR1,W		sq vf07,IN_RGBA(0,vi2)
+	maddaz acc,TR2,W		nop
+	mul RR,R,R			nop
+;	maddw TR,TR3,W			nop	; for old attempt
+	maddw T,TR3,W			nop
+
+;; start interleaved loop here probably?
+	opmula.xyz acc,R,U		nop
+	opmsub.xyz UU,U,R		nop
+	opmula.xyz acc,R,N		esum p,RR
+	opmsub.xyz NN,N,R		nop
+	opmula.xyz acc,R,T		nop
+	opmsub.xyz vf01,T,R		nop
+	opmula.xyz acc,R,UU		nop
+	maddaw.xyz acc,UU,R		nop
+	opmsub.xyz vf02,UU,R		nop
+	opmula.xyz acc,R,NN		nop
+	maddaw.xyz acc,NN,R		nop
+	opmsub.xyz vf03,NN,R		nop
+
+	;; position
+	mulaw acc,T,R			nop
+	maddaw acc,vf01,vf00		nop
+	maddaw acc,vf02,vf00		mfp TMPw,p
+	msubw vf04,R,T			nop
+
+	nop				nop
+	nop				nop
+	nop				div Two,TMPw
+	nop				iaddiu vi04,vi04,numSkinAttribs
+	nop				iaddiu vi02,vi02,numInAttribs
+	nop				nop
+	nop				 nop		; could start next esum as early as here
+	nop				nop
+	mulaw.xyz acc,U,vf00		nop		; normalize position and normal
+	maddq.xyz U,vf04,Q		nop		; can use Q here
+	mulaw.xyz acc,N,vf00		nop
+	maddq.xyz N,vf03,Q		nop
+	nop				nop
+	nop				sq U,IN_VERTEX(-1,vi02)
+	nop				ibne vi02,vi03,DQuatSkinLoop
+	nop				sq N,IN_NORMAL(-1,vi02)
+;;---------
+	nop				jr vi15
+	nop				nop
+
+;; old attempt
+
+	;; transform normal
+	opmula.xyz acc,R,N		nop
+	opmsub.xyz T,N,R		nop
+
+	nop				esum p,RR
+	add.w T,R,R			nop
+	add.w TT,vf00,vf00		nop
+
+	opmula.xyz acc,R,T		nop
+	opmsub.xyz TT,T,R		nop
+
+	nop				nop
+	mulaw.xyz acc,N,vf00		nop
+	maddaw.xyz acc,T,T		nop
+	maddw.xyz N,TT,TT		nop
+
+
+	;; transform position
+	opmula.xyz acc,R,TR		nop
+	maddaw.xyz acc,TR,R		nop
+	msubaw.xyz acc,R,TR		nop
+	opmsub.xyz TR,TR,R		mfp Xw,p
+
+	opmula.xyz acc,R,U		nop
+	opmsub.xyz T,U,R		nop
+
+	add.w TR,U,U			nop
+	nop				div vf00w,Xw
+	nop				nop
+
+	opmula.xyz acc,R,T		nop
+	opmsub.xyz TT,T,R		nop
+
+	mulaw.xyz acc,TR,TR		nop
+	maddaw.xyz acc,U,vf00		move.w R,U
+	maddaw.xyz acc,T,T		nop
+	maddw.xyz U,TT,TT		nop		; can use Q here
+
+
+
+
+

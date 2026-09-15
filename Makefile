@@ -85,6 +85,7 @@ linksce = $(CXX) -o $@ $(CRT_BEGIN) $(COMMONOBJ) $(1) $(LIBS) $(CRT_END) \
 XTCDEMO_OBJ := $(call demoobj,$(OBJDIR),xtcdemo)
 SPYRO_OBJ := $(call demoobj,$(OBJDIR),spyro)
 FOX_OBJ := $(call demoobj,$(OBJDIR),fox)
+QUATTEST_OBJ := $(call demoobj,$(OBJDIR),quattest)
 
 xtcdemo.elf: build/crt0.o $(COMMONOBJ) $(XTCDEMO_OBJ)
 	$(call linksce,$(XTCDEMO_OBJ))
@@ -94,6 +95,8 @@ spyro.elf: build/crt0.o $(COMMONOBJ) $(SPYRO_OBJ)
 FOX_LINKED = $(CHKDIR)/fox_ld.o $(CHKDIR)/fox_anim_ld.o	# CHKDIR comes with Makefile.assets, so deferred
 fox.elf: build/crt0.o $(COMMONOBJ) $(FOX_OBJ) $(FOX_LINKED)
 	$(call linksce,$(FOX_OBJ) $(FOX_LINKED))
+quattest.elf: build/crt0.o $(COMMONOBJ) $(QUATTEST_OBJ)
+	$(call linksce,$(QUATTEST_OBJ))
 
 run: xtcdemo.elf
 	dsedb -r run xtcdemo.elf
@@ -186,6 +189,7 @@ FSOBJ := $(addprefix $(FSOBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.
 FS_XTCDEMO_OBJ := $(call demoobj,$(FSOBJDIR),xtcdemo)
 FS_SPYRO_OBJ := $(call demoobj,$(FSOBJDIR),spyro)
 FS_FOX_OBJ := $(call demoobj,$(FSOBJDIR),fox)
+FS_QUATTEST_OBJ := $(call demoobj,$(FSOBJDIR),quattest)
 
 freesce: $(DEMOS:%=%_freesce.elf) chunks
 
@@ -210,6 +214,8 @@ spyro_freesce.elf: $(FSOBJ) $(FS_SPYRO_OBJ)
 	$(call linkfs,$(FS_SPYRO_OBJ))
 fox_freesce.elf: $(FSOBJ) $(FS_FOX_OBJ) $(FOX_LINKED)
 	$(call linkfs,$(FS_FOX_OBJ) $(FOX_LINKED))
+quattest_freesce.elf: $(FSOBJ) $(FS_QUATTEST_OBJ)
+	$(call linkfs,$(FS_QUATTEST_OBJ))
 
 # freesce's ee-dvp-as is binutils 2.9 and has neither -stalls-pipeline nor
 # -no-fetching. Both are warning options -- hazard reporting, not codegen --
