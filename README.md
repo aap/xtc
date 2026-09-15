@@ -248,6 +248,38 @@ the scene files load from the directory of the ELF.
 The GL sketch builds with `make` in `src_gl/`
 and wants GLFW, assimp, Lua, Dear ImGui and librw.
 
+## Running
+
+Two emulations of the same question, which ELF and where:
+
+| | PCSX2 | the TOOL (devtool) |
+|---|---|---|
+| build | `make freesce` (freesce, gcc 2.9) | `PATH=/usr/local/sce/ee/gcc/bin:$PATH make NAME.elf` (SDK, gcc 3.2) |
+| ELF | `NAME_freesce.elf` | `NAME.elf` |
+| run | `tools/pcsx2run.sh [-t SECS] [-s ARG] [-shot F] [-g RE] NAME_freesce.elf` | `tools/toolrun.sh [-t SECS] [-g RE] NAME.elf [ARG]` |
+| host: files | the boot ROM FILEIO client in skeleton/fio.c | the SDK's sceOpen (`FIO_SDK`) |
+
+Both resolve `host:` against the repo root, so run from there.  The
+ARG is the demo's boot argument: a scene name for xtcdemo (`-s dsm`),
+`level=N` for spyro, a model name for skinview (`cow`; `q:cow` the
+quantized chunk, `pause:cow` paused at t=0 for a deterministic frame,
+`pause:q:cow` both), nothing for fox.  Assets:
+`make chunks` builds what the demos load (`build/chk/`), `make variants`
+the fox's eight permutations, `CHKFLAGS=-quant` quantizes; the fox's
+model and clips are linked into its ELF.  Game and converted assets
+live under `local/` (`local/models/NAME.xm` + `.xan` for skinview,
+`local/spyro/levels` for spyro).
+
+So, to see quantized dual quaternion skinning (`STD_DQSKIN` in
+src/xtcpStd.c is 1, the chain is dequantize then skin):
+
+    make chunks                                       # cow_Q.chk among others
+    make freesce && tools/pcsx2run.sh -t 25 -s q:cow skinview_freesce.elf
+    PATH=/usr/local/sce/ee/gcc/bin:$PATH make skinview.elf && tools/toolrun.sh skinview.elf q:cow
+
+and to check a microcode change did not change the picture, shoot
+`pause:q:cow` before and after and compare with `tools/shotdiff.py`.
+
 ## To-do
 
 XTC has most of the fundamental features but

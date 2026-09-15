@@ -28,3 +28,7 @@ Running:
 
 * `pcsx2run.sh` -- run an ELF in PCSX2 for a bounded time, boot into a
   scene, take a screenshot, grep the log.
+* `toolrun.sh` -- run an SDK-built ELF on the TOOL through dsedb for a
+  bounded time and print its console; `tools/toolrun.sh fox.elf`.
+* `shotdiff.py` -- count the pixels two screenshots differ in, for
+  comparing two builds of the same deterministic frame.

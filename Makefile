@@ -51,7 +51,9 @@ demoobj = $(addprefix $(1)/,$(patsubst %.dsm,%.o,$(patsubst %.cpp,%.o,\
 DEMOSRC := $(foreach d,$(DEMOS),$(call demosrc,$(d)))
 
 #CFLAGS := -fno-common -fno-exceptions
-CFLAGS := -std=gnu99 -Os -fno-common -fno-exceptions ####-ffunction-sections -fdata-sections
+# FIO_SDK: host: files through the SDK's sceOpen (the TOOL); the freesce
+# build keeps the boot ROM FILEIO client (PCSX2)
+CFLAGS := -std=gnu99 -Os -fno-common -fno-exceptions -DFIO_SDK ####-ffunction-sections -fdata-sections
 CXXFLAGS := -Os -fno-common -fno-exceptions -fno-rtti
 
 # libmc and libscf were in here and nothing references them
@@ -82,6 +84,12 @@ COMMONOBJ := $(OBJ) $(MDMAOBJ)
 linksce = $(CXX) -o $@ $(CRT_BEGIN) $(COMMONOBJ) $(1) $(LIBS) $(CRT_END) \
 	-T /usr/local/sce/ee/lib/app.cmd -L/usr/local/sce/ee/lib -lm -nostartfiles
 
+# the assets: chunks from .xm/.xan text, the recipes and the variants
+# live in Makefile.assets.  Included before the link rules: a rule's
+# prerequisites are expanded where the rule is read, so CHKDIR must be
+# known by then (the SDK's make 3.79 knows include too)
+include Makefile.assets
+
 XTCDEMO_OBJ := $(call demoobj,$(OBJDIR),xtcdemo)
 SPYRO_OBJ := $(call demoobj,$(OBJDIR),spyro)
 FOX_OBJ := $(call demoobj,$(OBJDIR),fox)
@@ -108,9 +116,6 @@ build/crt0.o:
 	@mkdir -p $(@D)
 	$(CC) -c -xassembler-with-cpp -o $@ $(SCELIBDIR)/crt0.s
 
-# the assets: chunks from .xm/.xan text, the recipes and the variants
-# live in Makefile.assets (the SDK's make knows include)
-include Makefile.assets
 
 $(OBJDIR)/%.o: $(OBJDIR)/%.dsm_x
 	@mkdir -p $(@D)

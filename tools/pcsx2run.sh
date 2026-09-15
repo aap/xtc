@@ -33,6 +33,8 @@ done
 [ -z "$1" ] && { echo "usage: $0 [-t secs] [-s scene] [-shot out.png] [-g regex] elf" >&2; exit 1; }
 
 ELF=$(realpath "$1")
+# a missing ELF would put a "does not exist" dialog on the screen
+[ -f "$ELF" ] || { echo "pcsx2run: no such ELF: $1" >&2; exit 1; }
 LOG=$HOME/.cache/pcsx2run.log	# somewhere the flatpak can write
 rm -f "$LOG"
 

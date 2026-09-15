@@ -8,6 +8,18 @@
 
 #include "fio.h"
 
+/* FIO_SDK: on the SDK, host: files are the SDK's own business -- the
+ * TOOL's IOP runs under the DECI2 manager and has no rom0:FILEIO to
+ * bind to (the bind below would spin forever, before the program's
+ * first printf).  The five calls map straight onto libc's. */
+#ifdef FIO_SDK
+int fioOpen(const char *path, int flags) { return sceOpen(path, flags); }
+int fioClose(int fd) { return sceClose(fd); }
+int fioRead(int fd, void *buf, int n) { return sceRead(fd, buf, n); }
+int fioWrite(int fd, const void *buf, int n) { return sceWrite(fd, buf, n); }
+int fioLseek(int fd, int offset, int whence) { return sceLseek(fd, offset, whence); }
+#else
+
 #define FIO_RPC_ID 0x80000001
 
 /* the wire fnos; the same numbers every FILEIO speaks, it's the
@@ -183,3 +195,5 @@ fioLseek(int fd, int offset, int whence)
 		return -1;
 	return *(int*)UNCACHED(&result.val);
 }
+
+#endif /* FIO_SDK */
