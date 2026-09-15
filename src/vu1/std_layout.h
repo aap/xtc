@@ -84,16 +84,18 @@
 #define STD_STAGE_PREP_V16T16C8N8	2	/* dequantize positions and texcoords */
 #define STD_STAGE_PREP_SKIN_V32T32C8N8	3	/* skin, then repack */
 #define STD_STAGE_PREP_SKIN_V16T16C8N8	4	/* dequantize, skin, repack */
-#define STD_STAGE_TEXGEN		5	/* not yet */
-#define STD_STAGE_LT_WHITEV		6	/* the light routines, in xtcStdLightProcs' order */
-#define STD_STAGE_LT_BASEV		7
-#define STD_STAGE_LT_BASEVDIR		8
-#define STD_STAGE_LT_BASEVDIRV		9
-#define STD_STAGE_LT_BASEVDIR8		10
-#define STD_STAGE_PROCESS		11	/* transform and submit */
-#define STD_STAGE_TLCLIP		12	/* the same, clipping tri lists */
-#define STD_STAGE_TSCLIP		13	/* and tri strips */
-#define STD_NUMSTAGES			14
+#define STD_STAGE_PREP_DQSKIN_V32T32C8N8	5	/* skin with dual quaternions in the bone slots */
+#define STD_STAGE_TEXGEN		6	/* not yet */
+#define STD_STAGE_LT_WHITEV		7	/* the light routines, in xtcStdLightProcs' order */
+#define STD_STAGE_LT_BASEV		8
+#define STD_STAGE_LT_BASEVDIR		9
+#define STD_STAGE_LT_BASEVDIRV		10
+#define STD_STAGE_LT_BASEVDIR8		11
+#define STD_STAGE_PROCESS		12	/* transform and submit */
+#define STD_STAGE_TLCLIP		13	/* the same, clipping tri lists */
+#define STD_STAGE_TSCLIP		14	/* and tri strips */
+#define STD_STAGE_PREP_V16T16_5		15	/* dequantize a skin record in place, for a skin stage after it */
+#define STD_NUMSTAGES			16
 /* 0x3fb spare */
 
 /* not the upload's */

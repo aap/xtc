@@ -225,6 +225,23 @@ bounding sphere now (`sphere[4]`, measured by xm2dsm the way nodeBounds
 would), so a model without geometry still frames.  The fox ELF with
 its model and 19 clips inside is 2.9 MB, 1.2 MB of that the clips.
 
+## Dual quaternion skinning
+
+`PreprocessDQSkinV32T32C8N8` in std_preproc.vu (2026-09-13) skins with
+dual quaternions in the bone slots: rotation R at +0, dual part
+T = (t/2) R at +1 of the 4 qword slot the skin data already indexes.
+`STD_DQSKIN` in src/xtcpStd.c converts the bone matrices at upload
+(`qfrommat4` in xmath.h, normalized, each R flipped to agree in sign
+with bone 0; no scale survives) and puts the stage in the chain.  Blend
+of four bones by weight, |R|^2 through the EFU (`esum`, `waitp`, `mfp`),
+q = 2/|R|^2 through the divider (`waitq`), then
+`Uout = U + q (Tv Rs - Rv Ts + Rv x Tv + Rs (Rv x U) + Rv x (Rv x U))`
+and the rotation only for the normal.  The tube and the fox render as
+with matrices; not scheduled yet (about 55 cycles a vertex against 44).
+The routines it grew from are `demos/quattest/quat.vu`, and
+`demos/quattest` runs them as VU0 macro code next to the EE on random
+inputs (`host/genvu0.lua` generates the C from the same text).
+
 ## One program, two layouts
 
 `stdPipe.dsm` is the std and the skin pipe: the code once, resident,

@@ -173,6 +173,7 @@ restart:
 	nop				jalr vi15,vi14
 	nop				nop
 
+
 #include "std_preproc.vu"
 #include "std_lighting.vu"
 
@@ -248,6 +249,7 @@ xtcStdStages:
 	.word PreprocessV16T16C8N8
 	.word PreprocessSkinV32T32C8N8
 	.word PreprocessSkinV16T16C8N8
+	.word PreprocessDQSkinV32T32C8N8
 	.word 0				; texgen, not yet
 	.word LtWhiteV
 	.word LtBaseV
@@ -257,6 +259,7 @@ xtcStdStages:
 	.word Process
 	.word TLClip
 	.word TSClip
+	.word PreprocessV16T16_5
 
 .global xtcStdLightProcs
 xtcStdLightProcs:

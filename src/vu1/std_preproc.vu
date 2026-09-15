@@ -65,236 +65,352 @@ PProcV16T16C8N8_Loop:		;; 10 cycles per vert - 8 theoretical minimum
 	nop				nop
 
 
+;; frontend for passes that can t take V16T16 yet
+PreprocessV16T16_5:
+.if 1
+	nop				lq vf01,US_VERTEX(0,vi02)
+	nop				lq vf02,US_VERTEX(1,vi02)
+	nop				lq vf03,US_VERTEX(2,vi02)
+	nop				lq vf04,US_VERTEX(3,vi02)
+	itof0 vf01,vf01			lq vf21,unXYZOff(vi00)
+	itof0 vf02,vf02			lq vf20,unXYZScale(vi00)
+	itof0 vf03,vf03			lq vf22,unUVScale(vi00)
+	itof0 vf04,vf04			iadd vi04,vi03,vi04			;; add rounded up vertex count for skin end
+	mulaw acc,vf21,vf00		iaddiu vi02,vi02,4*numSkinAttribs
+PProcV16T16_5_Loop:		;; 18 cycles for 4 vertices
+	madd.xyz vf01,vf01,vf20		lq vf05,US_UV(0-4,vi02)
+	madd.xyz vf02,vf02,vf20		lq vf06,US_UV(1-4,vi02)
+	madd.xyz vf03,vf03,vf20		lq vf07,US_UV(2-4,vi02)
+	madd.xyz vf04,vf04,vf20		lq vf08,US_UV(3-4,vi02)
+	itof0 vf05,vf05			sq vf01,US_VERTEX(0-4,vi02)
+	itof0 vf06,vf06			sq vf02,US_VERTEX(1-4,vi02)
+	itof0 vf07,vf07			sq vf03,US_VERTEX(2-4,vi02)
+	itof0 vf08,vf08			sq vf04,US_VERTEX(3-4,vi02)
+	mul vf05,vf05,vf22		  lq vf01,US_VERTEX(0,vi02)
+	mul vf06,vf06,vf22		  lq vf02,US_VERTEX(1,vi02)
+	mul vf07,vf07,vf22		  lq vf03,US_VERTEX(2,vi02)
+	mul vf08,vf08,vf22		  lq vf04,US_VERTEX(3,vi02)
+	  itof0 vf01,vf01		sq vf05,US_UV(0-4,vi02)
+	  itof0 vf02,vf02		sq vf06,US_UV(1-4,vi02)
+	  itof0 vf03,vf03		sq vf07,US_UV(2-4,vi02)
+	  itof0 vf04,vf04		sq vf08,US_UV(3-4,vi02)
+	nop				ibne vi02,vi04,PProcV16T16_5_Loop
+	nop				iaddiu vi02,vi02,4*numSkinAttribs
+.else
+	nop				lq vf20,unXYZScale(vi00)
+	nop				lq vf21,unXYZOff(vi00)
+	nop				lq vf22,unUVScale(vi00)
+	nop				iadd vi04,vi03,vi04
+PProcV16T16_5_Loop:
+	nop				lq vf01,US_VERTEX(0,vi02)
+	nop				lq vf02,US_UV(0,vi02)
+	nop				nop
+	nop				nop
+	itof0 vf01,vf01			nop
+	itof0 vf02,vf02			nop
+	nop				nop
+	mulaw acc,vf21,vf00		nop
+	madd.xyz vf01,vf01,vf20		nop
+	mul vf02,vf02,vf22		iaddiu vi02,vi02,numSkinAttribs
+	nop				nop
+	nop				nop
+	nop				sq vf01,US_VERTEX(-1,vi02)
+	nop				ibne vi02,vi04,PProcV16T16_5_Loop
+	nop				sq vf02,US_UV(-1,vi02)
+;;---------
+.endif
+	nop				jr vi15
+	nop				xtop vi02	; restore for next preproc pass
+
 
 
 PreprocessSkinV16T16C8N8:
+	nop				lq vf20,unXYZScale(vi00)
+	nop				lq vf21,unXYZOff(vi00)
+	nop				lq vf22,unUVScale(vi00)
 	nop				loi 0.007874015748031496
 	nop				xtop vi04			; unpack pointer
-	nop				lq vf01,US_VERTEX(0,vi04)
-	nop				lq vf05,US_NORMAL(0,vi04)
-	nop				lq vf02,US_UV(0,vi04)
-	nop				lq vf03,US_RGBA(0,vi04)
-	itof0 vf01,vf01			ilw.x vi05,US_SKIN(0,vi04)
-	itof0 vf05,vf05			lq vf04,unXYZScale(vi00)
-	itof0 vf02,vf02			lq vf06,unXYZOff(vi00)
-	itof0 vf03,vf03			lq vf07,unUVScale(vi00)
-	mula acc,vf01,vf04		lq vf13,boneMatrices+3(vi05)
-	maddw vf01,vf06,vf00		lq vf11,boneMatrices+1(vi05)
-	muli vf05,vf05,i		lq vf12,boneMatrices+2(vi05)
-	mul vf02,vf02,vf07		lq vf10,boneMatrices+0(vi05)
-SkinV16T16C8N8_Loop:	; 44 cycles per vert
-	mulaw acc,vf13,vf00		ilw.y vi05,US_SKIN(0,vi04)
-	madday acc,vf11,vf01		sq vf02,IN_UV(0,vi02)
-	maddaz acc,vf12,vf01		sq vf03,IN_RGBA(0,vi02)
-	maddx vf02,vf10,vf01		lq vf15,boneMatrices+0(vi05)
-	mulax acc,vf10,vf05		lq vf16,boneMatrices+1(vi05)
-	madday acc,vf11,vf05		lq vf17,boneMatrices+2(vi05)
-	maddz vf06,vf12,vf05		lq vf18,boneMatrices+3(vi05)
-
-	mulax acc,vf15,vf01		ilw.z vi05,US_SKIN(0,vi04)
-	madday acc,vf16,vf01		nop
-	maddaz acc,vf17,vf01		nop
-	maddw vf03,vf18,vf00		lq vf10,boneMatrices+0(vi05)
-	mulax acc,vf15,vf05		lq vf11,boneMatrices+1(vi05)
-	madday acc,vf16,vf05		lq vf12,boneMatrices+2(vi05)
-	maddz vf07,vf17,vf05		lq vf13,boneMatrices+3(vi05)
-
-	mulax acc,vf10,vf01		ilw.w vi05,US_SKIN(0,vi04)
-	madday acc,vf11,vf01		nop
-	maddaz acc,vf12,vf01		nop
-	maddw vf04,vf13,vf00		lq vf15,boneMatrices+0(vi05)
-	mulax acc,vf10,vf05		lq vf16,boneMatrices+1(vi05)
-	madday acc,vf11,vf05		lq vf17,boneMatrices+2(vi05)
-	maddz vf08,vf12,vf05		lq vf18,boneMatrices+3(vi05)
-
-	mulax acc,vf15,vf01		  ilw.x vi05,US_SKIN(1,vi04)
-	madday acc,vf16,vf01		nop
-	maddaz acc,vf17,vf01		iaddiu vi02,vi02,numInAttribs
-	maddw vf19,vf18,vf00		lq vf14,US_SKIN(0,vi04)
-	mulax acc,vf15,vf05		nop
-	madday acc,vf17,vf05		move.w vf19,vf01
-	maddz vf09,vf18,vf05		nop
-
-	;; skinned vertex
-	mulax acc,vf02,vf14		  lq vf01,US_VERTEX(1,vi04)
-	madday acc,vf03,vf14		  lq vf05,US_NORMAL(1,vi04)
-	maddaz acc,vf04,vf14		  lq vf03,US_RGBA(1,vi04)
-	maddw.xyz vf19,vf19,vf14  	  lq vf02,US_UV(1,vi04)
-	;; skinned normal
-	mulax acc,vf06,vf14		  lq vf10,boneMatrices+0(vi05)
-	madday acc,vf07,vf14		  lq vf11,boneMatrices+1(vi05)
-	maddaz acc,vf08,vf14		  lq vf12,boneMatrices+2(vi05)
-	maddw vf09,vf09,vf14	  	  lq vf13,boneMatrices+3(vi05)
-
-	  itof0 vf01,vf01		iaddiu vi04,vi04,numSkinAttribs
-	  itof0 vf05,vf05		lq vf04,unXYZScale(vi00)
-	  itof0 vf02,vf02		lq vf06,unXYZOff(vi00)
-	  itof0 vf03,vf03		lq vf07,unUVScale(vi00)
-	  mula acc,vf01,vf04		sq vf19,IN_VERTEX(-1,vi02)
-	  maddw.xyz vf01,vf06,vf00	nop
-	  muli.xyz vf05,vf05,i		ibne vi02,vi03,SkinV16T16C8N8_Loop
-	  mul vf02,vf02,vf07		sq vf09,IN_NORMAL(-1,vi02)
+	nop				lqi vf01,(vi04++)		; pos
+	nop				lqi vf02,(vi04++)		; texcoord
+	nop				lqi vf03,(vi04++)		; color
+	nop				lqi vf05,(vi04++)		; normal
+	itof0 vf01,vf01			ilw.x vi05,0(vi04)		; the first vertex dequantized here,
+	itof0 vf02,vf02			ilw.y vi06,0(vi04)		; the loop does the next one at its end
+	itof0 vf07,vf03			ilw.z vi07,0(vi04)
+	itof0 vf05,vf05			ilw.w vi08,0(vi04)
+	mula acc,vf01,vf20		lqi vf14,(vi04++)		; weights
+	maddw.xyz vf01,vf21,vf00	lq vf10,boneMatrices+0(vi05)
+	mul vf02,vf02,vf22		lq vf11,boneMatrices+0(vi06)
+	muli vf19,vf05,i		lq vf12,boneMatrices+0(vi07)
+	nop				lq vf13,boneMatrices+0(vi08)
+PProcSkinV16T16C8N8_Loop:	;; 31 cycles per vertex
+	;; position in vf01, normal in vf19
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+1(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+1(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+1(vi07)
+	maddw vf15,vf13,vf14		lq vf13,boneMatrices+1(vi08)
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+2(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+2(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+2(vi07)
+	maddw vf16,vf13,vf14		lq vf13,boneMatrices+2(vi08)
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+3(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+3(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+3(vi07)
+	maddw vf17,vf13,vf14		lq vf13,boneMatrices+3(vi08)
+	mulax acc,vf10,vf14		  lqi vf04,(vi04++)		; pos
+	madday acc,vf11,vf14		  lqi vf06,(vi04++)		; texcoord
+	maddaz acc,vf12,vf14		  lqi vf03,(vi04++)		; color
+	maddw vf18,vf13,vf14		  lqi vf05,(vi04++)		; normal
+	mulax acc,vf15,vf01		  ilw.x vi05,0(vi04)
+	madday acc,vf16,vf01		  ilw.y vi06,0(vi04)
+	maddaz acc,vf17,vf01		  ilw.z vi07,0(vi04)
+	maddw.xyz vf01,vf18,vf00	  ilw.w vi08,0(vi04)
+	mulax acc,vf15,vf19		  lqi vf14,(vi04++)		; weights
+	madday acc,vf16,vf19		  lq vf10,boneMatrices+0(vi05)
+	maddz vf19,vf17,vf19		  lq vf11,boneMatrices+0(vi06)
+	itof0 vf05,vf05			sqi vf01,(vi02++)		; pos  
+	itof0 vf04,vf04			sqi vf02,(vi02++)		; texcoord
+	itof0 vf06,vf06			sqi vf07,(vi02++)		; color
+	itof0 vf07,vf03			sqi vf19,(vi02++)		; normal
+	muli vf19,vf05,i		  lq vf12,boneMatrices+0(vi07)
+	mula acc,vf04,vf20		nop
+	maddw.xyz vf01,vf21,vf00	ibne vi02,vi03,PProcSkinV16T16C8N8_Loop
+	mul vf02,vf06,vf22		  lq vf13,boneMatrices+0(vi08)
 ;;---------
 	nop				jr vi15
 	nop				nop
 
-
 PreprocessSkinV32T32C8N8:
+	nop				loi 0.007874015748031496
+	nop				xtop vi04			; unpack pointer
 .if 1
-	nop				loi 0.007874015748031496
-	nop				xtop vi04			; unpack pointer
-	nop				lq vf05,US_NORMAL(0,vi04)
-	nop				lq vf03,US_RGBA(0,vi04)
-	nop				lq vf01,US_VERTEX(0,vi04)
-	nop				ilw.x vi05,US_SKIN(0,vi04)
-	itof0 vf05,vf05			lq vf02,US_UV(0,vi04)		; normal to float
-	itof0 vf03,vf03			lq vf10,boneMatrices+0(vi05)
-	nop				lq vf11,boneMatrices+1(vi05)
-	nop				lq vf12,boneMatrices+2(vi05)
-	muli vf05,vf05,i		lq vf13,boneMatrices+3(vi05)
-SkinV32T32C8N8_Loop:	; 41 cycles per vert
-	mulax acc,vf10,vf01		ilw.y vi05,US_SKIN(0,vi04)
-	madday acc,vf11,vf01		sq vf02,IN_UV(0,vi02)
-	maddaz acc,vf12,vf01		sq vf03,IN_RGBA(0,vi02)
-	maddw vf02,vf13,vf00		lq vf15,boneMatrices+0(vi05)
-	mulax acc,vf10,vf05		lq vf16,boneMatrices+1(vi05)
-	madday acc,vf11,vf05		lq vf17,boneMatrices+2(vi05)
-	maddz vf06,vf12,vf05		lq vf18,boneMatrices+3(vi05)
-
-	mulax acc,vf15,vf01		ilw.z vi05,US_SKIN(0,vi04)
-	madday acc,vf16,vf01		nop
-	maddaz acc,vf17,vf01		nop
-	maddw vf03,vf18,vf00		lq vf10,boneMatrices+0(vi05)
-	mulax acc,vf15,vf05		lq vf11,boneMatrices+1(vi05)
-	madday acc,vf16,vf05		lq vf12,boneMatrices+2(vi05)
-	maddz vf07,vf17,vf05		lq vf13,boneMatrices+3(vi05)
-
-	mulax acc,vf10,vf01		ilw.w vi05,US_SKIN(0,vi04)
-	madday acc,vf11,vf01		nop
-	maddaz acc,vf12,vf01		nop
-	maddw vf04,vf13,vf00		lq vf15,boneMatrices+0(vi05)
-	mulax acc,vf10,vf05		lq vf16,boneMatrices+1(vi05)
-	madday acc,vf11,vf05		lq vf17,boneMatrices+2(vi05)
-	maddz vf08,vf12,vf05		lq vf18,boneMatrices+3(vi05)
-
-	mulax acc,vf15,vf01		  ilw.x vi05,US_SKIN(1,vi04)
-	madday acc,vf16,vf01		nop
-	maddaz acc,vf17,vf01		iaddiu vi02,vi02,numInAttribs
-	maddw vf19,vf18,vf00		lq vf14,US_SKIN(0,vi04)
-	mulax acc,vf15,vf05		nop
-	madday acc,vf17,vf05		move.w vf19,vf01
-	maddz vf09,vf18,vf05		nop
-
-	;; skinned vertex
-	mulax acc,vf02,vf14		  lq vf01,US_VERTEX(1,vi04)
-	madday acc,vf03,vf14		  lq vf05,US_NORMAL(1,vi04)
-	maddaz acc,vf04,vf14		  lq vf03,US_RGBA(1,vi04)
-	maddw.xyz vf19,vf19,vf14  	  lq vf02,US_UV(1,vi04)
-	;; skinned normal
-	mulax acc,vf06,vf14		  lq vf10,boneMatrices+0(vi05)
-	madday acc,vf07,vf14		  lq vf11,boneMatrices+1(vi05)
-	maddaz acc,vf08,vf14		  lq vf12,boneMatrices+2(vi05)
-	maddw vf09,vf09,vf14	  	  lq vf13,boneMatrices+3(vi05)
-
-	  itof0 vf05,vf05		iaddiu vi04,vi04,numSkinAttribs
-	  itof0 vf03,vf03		sq vf19,IN_VERTEX(-1,vi02)
-	nop				nop				; gah, the extra cycle for muli >:U
-	nop				ibne vi02,vi03,SkinV32T32C8N8_Loop
-	  muli vf05,vf05,i		sq vf09,IN_NORMAL(-1,vi02)
-
+	nop				lqi vf01,(vi04++)		; pos
+	nop				lqi vf02,(vi04++)		; texcoord
+	nop				lqi vf03,(vi04++)		; color
+	nop				lqi vf05,(vi04++)		; normal
+	nop				ilw.x vi05,0(vi04)
+	nop				ilw.y vi06,0(vi04)
+	itof0 vf07,vf03			ilw.z vi07,0(vi04)
+	itof0 vf05,vf05			ilw.w vi08,0(vi04)
+	nop				lqi vf14,(vi04++)		; weights
+	nop				lq vf10,boneMatrices+0(vi05)
+	nop				lq vf11,boneMatrices+0(vi06)
+	muli vf19,vf05,i		lq vf12,boneMatrices+0(vi07)
+	nop				lq vf13,boneMatrices+0(vi08)
+PProcSkinV32T32C8N8_Loop:	;; 30 cycles per vertex
+	;; position in vf01, normal in vf19
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+1(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+1(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+1(vi07)
+	maddw vf15,vf13,vf14		lq vf13,boneMatrices+1(vi08)
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+2(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+2(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+2(vi07)
+	maddw vf16,vf13,vf14		lq vf13,boneMatrices+2(vi08)
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+3(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+3(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+3(vi07)
+	maddw vf17,vf13,vf14		lq vf13,boneMatrices+3(vi08)
+	mulax acc,vf10,vf14		  lqi vf04,(vi04++)		; pos
+	madday acc,vf11,vf14		  lqi vf06,(vi04++)		; texcoord
+	maddaz acc,vf12,vf14		  lqi vf03,(vi04++)		; color
+	maddw vf18,vf13,vf14		  lqi vf05,(vi04++)		; normal
+	mulax acc,vf15,vf01		  ilw.x vi05,0(vi04)
+	madday acc,vf16,vf01		  ilw.y vi06,0(vi04)
+	maddaz acc,vf17,vf01		  ilw.z vi07,0(vi04)
+	maddw.xyz vf01,vf18,vf00	  ilw.w vi08,0(vi04)
+	mulax acc,vf15,vf19		  lqi vf14,(vi04++)		; weights
+	madday acc,vf16,vf19		  lq vf10,boneMatrices+0(vi05)
+	maddz vf19,vf17,vf19		  lq vf11,boneMatrices+0(vi06)
+	itof0 vf05,vf05			sqi vf01,(vi02++)		; pos  
+	mulw vf01,vf04,vf00		sqi vf02,(vi02++)		; texcoord
+	mulw vf02,vf06,vf00		sqi vf07,(vi02++)		; color
+	itof0 vf07,vf03			sqi vf19,(vi02++)		; normal
+	muli vf19,vf05,i		  lq vf12,boneMatrices+0(vi07)
+	nop				ibne vi02,vi03,PProcSkinV32T32C8N8_Loop
+	nop				  lq vf13,boneMatrices+0(vi08)
 .else
-	nop				loi 0.007874015748031496
-	nop				xtop vi04			; unpack pointer
-SkinV32T32C8N8_Loop:
-	nop				lq vf01,US_VERTEX(0,vi04)
-	nop				lq vf02,US_UV(0,vi04)
-	nop				lq vf03,US_RGBA(0,vi04)
+PProcSkinV32T32C8N8_Loop:
 	nop				lq vf05,US_NORMAL(0,vi04)
-	nop				lq vf14,US_SKIN(0,vi04)		; can be later..
-	nop				ilw.x vi05,US_SKIN(0,vi04)	; also later
+	nop				lq vf03,US_RGBA(0,vi04)
+	nop				ilw.x vi05,US_SKIN(0,vi04)
+	nop				ilw.y vi06,US_SKIN(0,vi04)
+	itof0 vf05,vf05			ilw.z vi07,US_SKIN(0,vi04)
+	itof0 vf03,vf03			ilw.w vi08,US_SKIN(0,vi04)
+	nop				lq vf14,US_SKIN(0,vi04)
+
+	nop				lq vf10,boneMatrices+0(vi05)
+	muli vf05,vf05,i		lq vf11,boneMatrices+0(vi06)
+	nop				lq vf12,boneMatrices+0(vi07)
+	nop				lq vf13,boneMatrices+0(vi08)
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+1(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+1(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+1(vi07)
+	maddw vf15,vf13,vf14		lq vf13,boneMatrices+1(vi08)
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+2(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+2(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+2(vi07)
+	maddw vf16,vf13,vf14		lq vf13,boneMatrices+2(vi08)
+	mulax acc,vf10,vf14		lq vf10,boneMatrices+3(vi05)
+	madday acc,vf11,vf14		lq vf11,boneMatrices+3(vi06)
+	maddaz acc,vf12,vf14		lq vf12,boneMatrices+3(vi07)
+	maddw vf17,vf13,vf14		lq vf13,boneMatrices+3(vi08)
+	mulax acc,vf10,vf14		lq vf01,US_VERTEX(0,vi04)
+	madday acc,vf11,vf14		lq vf02,US_UV(0,vi04)
+	maddaz acc,vf12,vf14		sq vf03,IN_RGBA(0,vi02)
+	maddw vf18,vf13,vf14		nop
+
+	mulax acc,vf15,vf01		nop
+	madday acc,vf16,vf01		sq vf02,IN_UV(0,vi02)
+	maddaz acc,vf17,vf01		nop
+	maddw.xyz vf01,vf18,vf00	nop
+
+	mulax acc,vf15,vf05		iaddiu vi04,vi04,numSkinAttribs
+	madday acc,vf16,vf05		iaddiu vi02,vi02,numInAttribs
+	maddz.xyz vf05,vf17,vf05	nop
+	nop				sq vf01,IN_VERTEX(-1,vi02)
+	nop				nop
+	nop				ibne vi02,vi03,PProcSkinV32T32C8N8_Loop
+	nop				sq vf05,IN_NORMAL(-1,vi02)
+;;---------
+.endif
+	nop				jr vi15
+	nop				nop
+
+
+PreprocessDQSkinV32T32C8N8:
+.if 1
+#define cU vf05
+#define cN vf08
+#define cR vf18
+#define nU vf21
+#define nN vf23
+#define nR vf20
+	add.w vf22,vf00,vf00		xtop vi04			; unpack pointer
+	nop				loi 0.007874015748031496	; normal scale
+	nop				lq cN,US_NORMAL(0,vi04)
+	nop				lq vf07,US_RGBA(0,vi04)
+	nop				lq cU,US_VERTEX(0,vi04)
+	nop				lq vf06,US_UV(0,vi04)
+	itof0 cN,cN			lq vf09,US_SKIN(0,vi04)
+	itof0 vf07,vf07			ilw.x vi05,US_SKIN(0,vi04)
 	nop				ilw.y vi06,US_SKIN(0,vi04)
 	nop				ilw.z vi07,US_SKIN(0,vi04)
-	nop				ilw.w vi08,US_SKIN(0,vi04)
-	itof0 vf05,vf05			nop				; normal to float
-	itof0 vf03,vf03			nop				; RGBA to float
-	nop				nop			
-	nop				sq vf02,IN_UV(0,vi02)
-	muli vf05,vf05,i		nop				; scale normal
-	nop				sq vf03,IN_RGBA(0,vi02)
-
-.if 1	;; enable/disable skinning
-	;; four M[i]*V and M[i]*N transformations
-	;; matrices better be orthogonal
+	muli cN,cN,i			ilw.w vi08,US_SKIN(0,vi04)
 	nop				lq vf10,boneMatrices+0(vi05)
-	nop				lq vf11,boneMatrices+1(vi05)
-	nop				lq vf12,boneMatrices+2(vi05)
-	nop				lq vf13,boneMatrices+3(vi05)
-	mulax acc,vf10,vf01		nop
-	madday acc,vf11,vf01		nop
-	maddaz acc,vf12,vf01		nop
-	maddw vf02,vf13,vf00		nop
-	mulax acc,vf10,vf05		nop
-	madday acc,vf11,vf05		nop
-	maddz vf06,vf12,vf05		nop
+	nop				lq vf11,boneMatrices+0(vi06)
+	nop				lq vf12,boneMatrices+0(vi07)
+	nop				lq vf13,boneMatrices+0(vi08)
+	mulax acc,vf10,vf09		lq vf14,boneMatrices+1(vi05)
+	madday acc,vf11,vf09		lq vf15,boneMatrices+1(vi06)
+	maddaz acc,vf12,vf09		lq vf16,boneMatrices+1(vi07)
+	maddw cR,vf13,vf09		lq vf17,boneMatrices+1(vi08)	; R
+	mulax acc,vf14,vf09		nop
+	madday acc,vf15,vf09		nop
+	maddaz acc,vf16,vf09		nop
+	mul vf01,cR,cR			nop				; R*R
+	maddw vf19,vf17,vf09		nop				; T
+DQSkinV32T32C8N8_Loop:		;; 32 cycles per vertex
+	opmula.xyz acc,cR,cU		sq vf06,IN_UV(0,vi02)
+	opmsub.xyz vf02,cU,cR		sq vf07,IN_RGBA(0,vi02)		; Rv x Uv
+	opmula.xyz acc,cR,cN		esum P,vf01			; - |R|^2 of this vertex
+	opmsub.xyz vf03,cN,cR		  lq vf09,US_SKIN(1,vi04)	; Rv x Nv
+	opmula.xyz acc,cR,vf19		  ilw.x vi05,US_SKIN(1,vi04)
+	opmsub.xyz vf01,vf19,cR		  ilw.y vi06,US_SKIN(1,vi04)	; Rv x Tv
+	opmula.xyz acc,cR,vf02		  ilw.z vi07,US_SKIN(1,vi04)
+	maddaw.xyz acc,vf02,cR		  ilw.w vi08,US_SKIN(1,vi04)
+	opmsub.xyz vf02,vf02,cR		  lq vf10,boneMatrices+0(vi05)	; Rv x (Rv x Uv) + Rs*(Rv x Uv)
+	opmula.xyz acc,cR,vf03		  lq vf11,boneMatrices+0(vi06)
+	maddaw.xyz acc,vf03,cR		  lq vf12,boneMatrices+0(vi07)
+	opmsub.xyz vf03,vf03,cR		  lq vf13,boneMatrices+0(vi08)	; Rv x (Rv x Nv) + Rs*(Rv x Nv), normal
+	  mulax acc,vf10,vf09		  lq nN,US_NORMAL(1,vi04)
+	  madday acc,vf11,vf09		  lq vf07,US_RGBA(1,vi04)
+	  maddaz acc,vf12,vf09		mfp.x vf22,P
+	  maddw nR,vf13,vf09		nop				; next R
+	  itof0 nN,nN			move nU,cU
+	  itof0 vf07,vf07		nop
+	mulaw acc,vf19,cR		div Q,vf22w,vf22x		; - q = 2/|R|^2
+	maddaw acc,vf01,vf00		iaddiu vi04,vi04,numSkinAttribs
+	maddaw acc,vf02,vf00		move vf02,cN	
+	msubw vf04,cR,vf19		move cR,nR			; position
+	  muli cN,nN,i			iaddiu vi02,vi02,numInAttribs
+	  mul vf01,nR,nR		  lq vf06,US_UV(0,vi04)		; next R*R
+	mulaw.xyz acc,nU,vf00		  lq vf14,boneMatrices+1(vi05)
+	maddq.xyz nU,vf04,Q		  lq vf15,boneMatrices+1(vi06)	; U out
+	mulaw.xyz acc,vf02,vf00		  lq vf16,boneMatrices+1(vi07)
+	maddq.xyz vf02,vf03,Q		  lq vf17,boneMatrices+1(vi08)	; N out
+	  mulax acc,vf14,vf09		  lq cU,US_VERTEX(0,vi04)
+	  madday acc,vf15,vf09		sq nU,IN_VERTEX(-1,vi02)
+	  maddaz acc,vf16,vf09		ibne vi02,vi03,DQSkinV32T32C8N8_Loop
+	  maddw vf19,vf17,vf09		sq vf02,IN_NORMAL(-1,vi02)	; next T
+#undef cU
+#undef cN
+#undef cR
+#undef nU
+#undef nN
+#undef nR
+.else
+	add.w vf22,vf00,vf00		xtop vi04			; unpack pointer
+	nop				loi 0.007874015748031496	; normal scale
+DQSkinV32T32C8N8_Loop:
+	nop				lq vf08,US_NORMAL(0,vi04)
+	nop				lq vf07,US_RGBA(0,vi04)
+	nop				lq vf05,US_VERTEX(0,vi04)
+	nop				lq vf06,US_UV(0,vi04)
+	itof0 vf08,vf08			lq vf09,US_SKIN(0,vi04)
+	itof0 vf07,vf07			ilw.x vi05,US_SKIN(0,vi04)
+	nop				ilw.y vi06,US_SKIN(0,vi04)
+	nop				ilw.z vi07,US_SKIN(0,vi04)
+	muli vf08,vf08,i		ilw.w vi08,US_SKIN(0,vi04)
 
-	nop				lq vf10,boneMatrices+0(vi06)
-	nop				lq vf11,boneMatrices+1(vi06)
-	nop				lq vf12,boneMatrices+2(vi06)
-	nop				lq vf13,boneMatrices+3(vi06)
-	mulax acc,vf10,vf01		nop
-	madday acc,vf11,vf01		nop
-	maddaz acc,vf12,vf01		nop
-	maddw vf03,vf13,vf00		nop
-	mulax acc,vf10,vf05		nop
-	madday acc,vf11,vf05		nop
-	maddz vf07,vf12,vf05		nop
+	nop				lq vf10,boneMatrices+0(vi05)
+	nop				lq vf11,boneMatrices+0(vi06)
+	nop				lq vf12,boneMatrices+0(vi07)
+	nop				lq vf13,boneMatrices+0(vi08)
+	mulax acc,vf10,vf09		lq vf14,boneMatrices+1(vi05)
+	madday acc,vf11,vf09		lq vf15,boneMatrices+1(vi06)
+	maddaz acc,vf12,vf09		lq vf16,boneMatrices+1(vi07)
+	maddw vf18,vf13,vf09		lq vf17,boneMatrices+1(vi08)	; R
+	mulax acc,vf14,vf09		sq vf06,IN_UV(0,vi02)
+	madday acc,vf15,vf09		sq vf07,IN_RGBA(0,vi02)
+	maddaz acc,vf16,vf09		nop
+	mul vf20,vf18,vf18		nop				; R*R
+	maddw vf19,vf17,vf09		nop				; T
 
-	nop				lq vf10,boneMatrices+0(vi07)
-	nop				lq vf11,boneMatrices+1(vi07)
-	nop				lq vf12,boneMatrices+2(vi07)
-	nop				lq vf13,boneMatrices+3(vi07)
-	mulax acc,vf10,vf01		nop
-	madday acc,vf11,vf01		nop
-	maddaz acc,vf12,vf01		nop
-	maddw vf04,vf13,vf00		nop
-	mulax acc,vf10,vf05		nop
-	madday acc,vf11,vf05		nop
-	maddz vf08,vf12,vf05		nop
+	opmula.xyz acc,vf18,vf05	nop
+	opmsub.xyz vf02,vf05,vf18	nop				; Rv x U
+	opmula.xyz acc,vf18,vf08	esum P,vf20
+	opmsub.xyz vf03,vf08,vf18	nop				; Rv x N; |R|^2
+	opmula.xyz acc,vf18,vf19	nop
+	opmsub.xyz vf01,vf19,vf18	nop				; Rv x Tv
+	opmula.xyz acc,vf18,vf02	nop
+	maddaw.xyz acc,vf02,vf18	nop
+	opmsub.xyz vf02,vf02,vf18	nop				; Rv x (Rv x U) + Rs (Rv x U)
+	opmula.xyz acc,vf18,vf03	nop
+	maddaw.xyz acc,vf03,vf18	nop
+	opmsub.xyz vf03,vf03,vf18	nop				; Rv x (Rv x N) + Rs (Rv x N)
 
-	nop				lq vf10,boneMatrices+0(vi08)
-	nop				lq vf11,boneMatrices+1(vi08)
-	nop				lq vf12,boneMatrices+2(vi08)
-	nop				lq vf13,boneMatrices+3(vi08)
-	mulax acc,vf10,vf01		nop
-	madday acc,vf11,vf01		nop
-	maddaz acc,vf12,vf01		nop
-	maddw.xyz vf01,vf13,vf00	nop
-	mulax acc,vf10,vf05		nop
-	madday acc,vf11,vf05		nop
-	maddz.xyz vf05,vf12,vf05	nop
-
-	;; skinned vertex
-	mulax acc,vf02,vf14		nop
-	madday acc,vf03,vf14		nop
-	maddaz acc,vf04,vf14		nop
-	maddw.xyz vf01,vf01,vf14	nop
-	;; skinned normal
-	mulax acc,vf06,vf14		nop
-	madday acc,vf07,vf14		nop
-	maddaz acc,vf08,vf14		nop
-	maddw.xyz vf05,vf05,vf14	nop
-.endif
+	mulaw acc,vf19,vf18		nop				; Tv Rs
+	maddaw acc,vf01,vf00		nop
+	maddaw acc,vf02,vf00		mfp.x vf22,P
+	msubw vf04,vf18,vf19		nop				; - Rv Ts: the position delta
 
 	nop				nop
 	nop				nop
-	nop				sq vf01,IN_VERTEX(0,vi02)
-	nop				sq vf05,IN_NORMAL(0,vi02)
+	nop				div Q,vf22w,vf22x		; q = 2/|R|^2
+	nop				iaddiu vi04,vi04,numSkinAttribs
 	nop				iaddiu vi02,vi02,numInAttribs
 	nop				nop
-
-	nop				ibne vi02,vi03,SkinV32T32C8N8_Loop
-	nop				iaddiu vi04,vi04,numSkinAttribs
-
+	nop				nop
+	nop				nop
+	mulaw.xyz acc,vf05,vf00		nop
+	maddq.xyz vf05,vf04,Q		nop				; Uout
+	mulaw.xyz acc,vf08,vf00		nop
+	maddq.xyz vf08,vf03,Q		nop				; Nout
+	nop				nop
+	nop				sq vf05,IN_VERTEX(-1,vi02)
+	nop				ibne vi02,vi03,DQSkinV32T32C8N8_Loop
+	nop				sq vf08,IN_NORMAL(-1,vi02)
 .endif
 ;;---------
 	nop				jr vi15

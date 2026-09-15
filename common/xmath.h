@@ -248,6 +248,24 @@ static inline Vec3 qrotatev3(Quat q, Vec3 v) {
 }
 
 // unit quaternion to rotation matrix
+// the inverse of qtomat4 for a rotation matrix (columns x y z the images
+// of the axes); a scaled one gives the rotation, normalize the result
+static inline Quat qfrommat4(Mat4 m) {
+	float tr = m.x.x + m.y.y + m.z.z, s;
+	if(tr > 0.0f) {
+		s = sqrtf(tr + 1.0f)*2.0f;
+		return quat((m.y.z - m.z.y)/s, (m.z.x - m.x.z)/s, (m.x.y - m.y.x)/s, 0.25f*s);
+	} else if(m.x.x > m.y.y && m.x.x > m.z.z) {
+		s = sqrtf(1.0f + m.x.x - m.y.y - m.z.z)*2.0f;
+		return quat(0.25f*s, (m.x.y + m.y.x)/s, (m.x.z + m.z.x)/s, (m.y.z - m.z.y)/s);
+	} else if(m.y.y > m.z.z) {
+		s = sqrtf(1.0f + m.y.y - m.x.x - m.z.z)*2.0f;
+		return quat((m.x.y + m.y.x)/s, 0.25f*s, (m.y.z + m.z.y)/s, (m.z.x - m.x.z)/s);
+	} else {
+		s = sqrtf(1.0f + m.z.z - m.x.x - m.y.y)*2.0f;
+		return quat((m.x.z + m.z.x)/s, (m.y.z + m.z.y)/s, 0.25f*s, (m.x.y - m.y.x)/s);
+	}
+}
 static inline Mat4 qtomat4(Quat q) {
 	float xx = q.x*q.x, yy = q.y*q.y, zz = q.z*q.z;
 	float xy = q.x*q.y, xz = q.x*q.z, yz = q.y*q.z;
