@@ -229,7 +229,9 @@ convertAssimpMesh(aiMesh *m, HierEntry *hier)
 			// and RenderWare's, has row 0 at the top of the image
 			vx->tex[1] = 1.0f - uv[i].y;
 		}
-		// no vertex colours: stay black, materials use them as emissive
+		// no vertex colours: black, materials use them as emissive, but
+		// opaque: alpha goes to the GS and blending would erase the mesh
+		vx->col[3] = 255;
 		if(col) {
 			vx->col[0] = col[i].r*255.0f;
 			vx->col[1] = col[i].g*255.0f;

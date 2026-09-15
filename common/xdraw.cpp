@@ -212,11 +212,32 @@ xSkeletonDraw(xSkeleton *s)
 	xtcEnd();
 }
 
+// PROVISIONAL: a node that is a bone takes the skeleton's animated
+// matrix (model space after xAnimPlayerApply), so a mesh parented under
+// a bone -- the cow's eyes under its head -- follows the animation
+// instead of the bind pose.  Whether nodes should be driven this way at
+// all is still open.
+static int
+boneOfNode(xSkeleton *skel, xNode *n)
+{
+	if(skel)
+		for(int i = 0; i < skel->numBones; i++)
+			if(skel->bones[i].node == n)
+				return i;
+	return -1;
+}
+
 static void
 xNodeDraw(xNode *n, xSkeleton *skel, int flags)
 {
 	Mat4 oldmat = xtcGetWorldMatrix();
-	xtcSetWorldMatrix(oldmat * n->localMatrix);
+	int b = boneOfNode(skel, n);
+	static int dbg = 0;
+	if(0) { dbg++; Mat4 m = b >= 0 ? skel->matrices[b] : n->localMatrix; printf("xdraw: node %s bone %d meshes %d  w %g %g %g  x %g %g %g\n", n->name ? n->name : "?", b, n->numMeshes, m.w.x, m.w.y, m.w.z, m.x.x, m.x.y, m.x.z); }
+	if(b >= 0)
+		xtcSetWorldMatrix(modelMatrix * skel->matrices[b]);
+	else
+		xtcSetWorldMatrix(oldmat * n->localMatrix);
 	if(!n->hidden)
 		for(int i = 0; i < n->numMeshes; i++)
 			xMeshDraw(n->meshes[i], skel, flags);

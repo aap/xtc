@@ -52,7 +52,16 @@ SPYROSKY := $(patsubst local/spyro/levels/%/sky.xm,%,\
 SPYROCHK := $(SPYROLVL:%=$(CHKDIR)/spyro/%_world.chk) \
 	$(SPYROSKY:%=$(CHKDIR)/spyro/%_sky.chk)
 
-CHUNKS := $(CHKDIR)/fox.chk $(CHKDIR)/fox_anim.chk $(SPYROCHK)
+# any model dropped into local/models/ as NAME.xm (+ NAME.xan): the GL
+# sketch's converter writes them (./xtc model.glb -save ../local/models/NAME),
+# demos/skinview shows them.  Every clip of the .xan goes in.
+MODELS := $(patsubst local/models/%.xm,%,$(wildcard local/models/*.xm))
+MODELANIMS := $(patsubst local/models/%.xan,%,$(wildcard local/models/*.xan))
+# and every model quantized as well, NAME_Q.chk: skinview shows it as q:NAME
+MODELCHK := $(MODELS:%=$(CHKDIR)/models/%.chk) $(MODELS:%=$(CHKDIR)/models/%_Q.chk) \
+	$(MODELANIMS:%=$(CHKDIR)/models/%_anim.chk)
+
+CHUNKS := $(CHKDIR)/fox.chk $(CHKDIR)/fox_anim.chk $(SPYROCHK) $(MODELCHK)
 
 # the clips demos/fox plays: four standing idles, three sitting, three
 # lying, the alert crouch, and the eight Trans_* clips that get between
@@ -158,6 +167,19 @@ $(CHKDIR)/%_SG.dsm: samples/fox/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
 	$(XM2DSM) -strips $(CHKDIR)/$*.strips $< > $@
 $(CHKDIR)/%_SQG.dsm: samples/fox/%.xm $(CHKDIR)/%.strips $(XM2DSMDEP)
 	$(XM2DSM) -strips $(CHKDIR)/$*.strips -quant $< > $@
+
+$(CHKDIR)/models/%.strips: local/models/%.xm build/host/xstrip
+	@mkdir -p $(@D)
+	build/host/xstrip -o $@ $<
+$(CHKDIR)/models/%.dsm: local/models/%.xm $(CHKDIR)/models/%.strips $(XM2DSMDEP)
+	@mkdir -p $(@D)
+	$(XM2DSM) -strips $(CHKDIR)/models/$*.strips $(CHKFLAGS) $< > $@
+$(CHKDIR)/models/%_Q.dsm: local/models/%.xm $(CHKDIR)/models/%.strips $(XM2DSMDEP)
+	@mkdir -p $(@D)
+	$(XM2DSM) -strips $(CHKDIR)/models/$*.strips -nogeo -quant $< > $@
+$(CHKDIR)/models/%_anim.dsm: local/models/%.xan tools/xan2dsm.lua
+	@mkdir -p $(@D)
+	lua tools/xan2dsm.lua -name $*_anim $< > $@
 
 # the 35 levels.  The stem is levelNN and the part is in the target's
 # name, so world and sky want a rule each.  The samples/fox rules above
