@@ -73,9 +73,12 @@ xDrawAxes(float scale)
 	xtcEnd();
 }
 
-// the world matrix of the model being drawn.
-// skinned meshes are in model space, not in their node's space
+// the world matrix of the model being drawn, and the world matrix skinned
+// meshes are placed with: modelMatrix times the skeleton's base transform.
+// The skeleton is rigid and relative to that base, so the model's placement
+// and scale live in skinMatrix, not in the skin (design B).
 static Mat4 modelMatrix;
+static Mat4 skinMatrix;
 
 // a stopgap until the material names its pipeline: when set, unskinned
 // meshes are drawn with this pipeline instead of the default one
@@ -152,7 +155,7 @@ xMeshDraw(xMesh *xm, xSkeleton *skel, int flags)
 	bool skinned = xm->skin && skel;
 	Mat4 nodeMatrix = xtcGetWorldMatrix();
 	if(skinned)
-		xtcSetWorldMatrix(modelMatrix);
+		xtcSetWorldMatrix(skinMatrix);
 
 	xMeshSelectShader(xm, skel);
 	if(xm->material->tex)
@@ -235,7 +238,7 @@ xNodeDraw(xNode *n, xSkeleton *skel, int flags)
 	static int dbg = 0;
 	if(0) { dbg++; Mat4 m = b >= 0 ? skel->matrices[b] : n->localMatrix; printf("xdraw: node %s bone %d meshes %d  w %g %g %g  x %g %g %g\n", n->name ? n->name : "?", b, n->numMeshes, m.w.x, m.w.y, m.w.z, m.x.x, m.x.y, m.x.z); }
 	if(b >= 0)
-		xtcSetWorldMatrix(modelMatrix * skel->matrices[b]);
+		xtcSetWorldMatrix(skinMatrix * skel->matrices[b]);
 	else
 		xtcSetWorldMatrix(oldmat * n->localMatrix);
 	if(!n->hidden)
@@ -262,6 +265,7 @@ void
 xModelDraw(xModel *m, int flags)
 {
 	modelMatrix = xtcGetWorldMatrix();
+	skinMatrix = m->skel ? modelMatrix * xSkeletonBaseMatrix(m->skel) : modelMatrix;
 	xNodeDraw(m->root, m->skel, flags);
 	if(flags & (Dbg_DrawNodes | Dbg_DrawSkeleton)) {
 		xtcDisable(XTC_DEPTH_TEST);

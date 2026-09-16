@@ -249,6 +249,8 @@ local function readXm(file)
 		elseif c == "bone" then
 			local b = node.skel.bones
 			b[#b+1] = { name = t[2], flag = tonumber(t[3]), tag = tonumber(t[4]), m = readMatrix(t, 5) }
+		elseif c == "sphere" then
+			mdl.sphere = { tonumber(t[2]), tonumber(t[3]), tonumber(t[4]), tonumber(t[5]) }
 		else
 			error("unknown command " .. c)
 		end
@@ -769,7 +771,7 @@ if quantFlag then quantizePipe(pipes.std); quantizePipe(pipes.skin) end
 	emitPtr(symName .. "_materials")
 	emitPtr(mdl.root.sym)
 	emitPtr(mdl.skel and mdl.skelNode.sym .. "_skel")
-	emitf("\t.float %s\t; bounding sphere: centre, radius", floats(modelSphere(mdl)))
+	emitf("\t.float %s\t; bounding sphere: centre, radius", floats(mdl.sphere or modelSphere(mdl)))
 	emit(".align 4")
 
 	label(symName .. "_meshes", "xMesh *[]")

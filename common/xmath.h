@@ -137,6 +137,18 @@ static inline Mat4 m4invOrthoP(const Mat4 *m) {
 }
 static inline Mat4 m4invOrtho(Mat4 m) { return m4invOrthoP(&m); }
 
+// general inverse of an affine matrix (bottom row 0 0 0 1); handles scale
+// and shear.  offline/host use (the converter): not needed on the VU
+static inline Mat4 m4inverse(Mat4 m) {
+	Vec3 a = v4tov3(m.x), b = v4tov3(m.y), c = v4tov3(m.z), t = v4tov3(m.w);
+	Vec3 r0 = v3cross(b, c), r1 = v3cross(c, a), r2 = v3cross(a, b);
+	float id = 1.0f/v3dot(a, r0);
+	return mat4(vec4(r0.x*id, r1.x*id, r2.x*id, 0.0f),
+	            vec4(r0.y*id, r1.y*id, r2.y*id, 0.0f),
+	            vec4(r0.z*id, r1.z*id, r2.z*id, 0.0f),
+	            vec4(-v3dot(r0,t)*id, -v3dot(r1,t)*id, -v3dot(r2,t)*id, 1.0f));
+}
+
 static inline Mat4 m4translate(float x, float y, float z) {
 	Mat4 m = m4ident();
 	m.w = vec4(x, y, z, 1.0f);
@@ -238,10 +250,12 @@ static inline Quat qrotate(Quat q, Quat v) { return qmul(q, qmul(qvec(v), qinv(q
 static inline Quat qrrotate(Quat q, Quat v) { return qmul(qinv(q), qmul(qvec(v), q)); }
 
 // rotation by angle around a unit axis
+// aap: kinda SUS but acceptable
 static inline Quat qaxisangle(Vec3 axis, float a) {
 	float s = sinf(a*0.5f);
 	return quat(s*axis.x, s*axis.y, s*axis.z, cosf(a*0.5f));
 }
+// aap: very SUS, we have qsandwich already (could be optimized though)
 static inline Vec3 qrotatev3(Quat q, Vec3 v) {
 	Quat r = qmul(q, qmul(quat(v.x, v.y, v.z, 0.0f), qconj(q)));
 	return vec3(r.x, r.y, r.z);
@@ -250,6 +264,7 @@ static inline Vec3 qrotatev3(Quat q, Vec3 v) {
 // unit quaternion to rotation matrix
 // the inverse of qtomat4 for a rotation matrix (columns x y z the images
 // of the axes); a scaled one gives the rotation, normalize the result
+// aap: extremely SUS, not a proper function because of double cover
 static inline Quat qfrommat4(Mat4 m) {
 	float tr = m.x.x + m.y.y + m.z.z, s;
 	if(tr > 0.0f) {
@@ -277,6 +292,8 @@ static inline Mat4 qtomat4(Quat q) {
 }
 
 // shortest-path interpolation between unit quaternions
+// very SUS, slerp feels very harmful compared to nlerp
+// could be kept for compatibility with poor choices
 static inline Quat qslerp(Quat a, Quat b, float t) {
 	float th, s;
 	float c = qdot(a, b);

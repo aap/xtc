@@ -93,6 +93,8 @@ STRUCT(xSkeleton) {
 xSkeleton *allocXSkeleton(int nbones);
 void xSkeletonResetMatrices(xSkeleton *s);
 void xSkeletonUpdateMatrices(xSkeleton *s);
+// where the skeleton is anchored in the model (transform above the root bone)
+Mat4 xSkeletonBaseMatrix(xSkeleton *s);
 int findBone(xSkeleton *skel, const char *str);
 
 struct xNode
@@ -149,6 +151,10 @@ void freeXModel(xModel *mdl);
 // every image readTexturePNG cached, textures of freed models included
 void xTextureCacheFlush(void);
 void buildXModel(xModel *mdl);
+// move a skinned model to a rigid, base-rooted skeleton (design B): re-bake
+// the skin's vertices and inverse binds so the skeleton stays rigid and the
+// model's placement/scale rides in the world matrix (xSkeletonBaseMatrix)
+void xReRootSkin(xModel *mdl);
 // bind pose bounding sphere in model space
 void xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius);
 

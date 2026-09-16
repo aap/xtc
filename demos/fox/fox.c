@@ -429,7 +429,11 @@ foxSkelMiddle(void)
 	c = vec3(0.0f, 0.0f, 0.0f);
 	for(i = 0; i < s->numBones; i++)
 		c = v3add(c, v4tov3(s->matrices[i].w));
-	return v3scale(1.0f/s->numBones, c);
+	c = v3scale(1.0f/s->numBones, c);
+	/* the skeleton is relative to its base now (design B); bring the
+	 * middle into model space, where foxCenter lives */
+	Mat4 base = xSkeletonBaseMatrix(s);
+	return m4xformPoint(&base, c);
 }
 
 static void

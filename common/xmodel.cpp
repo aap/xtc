@@ -307,6 +307,8 @@ writeXModel(FILE *f, xModel *mdl)
 {
 	fprintf(f, "numMaterials %d\n", mdl->numMaterials);
 	fprintf(f, "numMeshes %d\n", mdl->numMeshes);
+	if(mdl->sphere[3] > 0.0f)
+		fprintf(f, "sphere %g %g %g %g\n", mdl->sphere[0], mdl->sphere[1], mdl->sphere[2], mdl->sphere[3]);
 	for(int i = 0; i < mdl->numMaterials; i++)
 		writeXMaterial(f, mdl->materials[i], i);
 	for(int i = 0; i < mdl->numMeshes; i++)
@@ -514,6 +516,7 @@ lookup(struct Cmd *tab, char *str)
 #define CMDS \
 	X("numMeshes", CMD_NUM_MESHES) \
 	X("numMaterials", CMD_NUM_MATERIALS) \
+	X("sphere", CMD_SPHERE) \
 	X("material", CMD_MATERIAL) \
 	X("ambient", CMD_AMBIENT) \
 	X("diffuse", CMD_DIFFUSE) \
@@ -642,6 +645,10 @@ loadXModelText(char *text, uint32 size)
 		case CMD_NUM_MATERIALS:
 			mdl->numMaterials = atoi(tokens[1]);
 			mdl->materials = (xMaterial**)emalloc(mdl->numMaterials*sizeof(xMaterial*));
+			break;
+		case CMD_SPHERE:
+			mdl->sphere[0] = atof(tokens[1]); mdl->sphere[1] = atof(tokens[2]);
+			mdl->sphere[2] = atof(tokens[3]); mdl->sphere[3] = atof(tokens[4]);
 			break;
 
 		case CMD_MATERIAL:
@@ -997,6 +1004,8 @@ static void
 nodeBounds(xNode *n, const Mat4 &parent, xSkeleton *skel, Vec3 *bmin, Vec3 *bmax)
 {
 	Mat4 world = parent * n->localMatrix;
+	// skinned meshes are relative to the skeleton base; put them in model space
+	Mat4 base = skel ? xSkeletonBaseMatrix(skel) : m4ident();
 	for(int i = 0; i < n->numMeshes; i++) {
 		xMesh *m = n->meshes[i];
 		xGeometry *g = m->geo;
@@ -1013,7 +1022,7 @@ nodeBounds(xNode *n, const Mat4 &parent, xSkeleton *skel, Vec3 *bmin, Vec3 *bmax
 					float w = m->skin->weights[4*j+k];
 					int b = m->skin->indices[4*j+k];
 					if(w > 0.0f)
-						p += w * v4tov3(skel->matrices[b] * m->skin->invMatrices[b] * v);
+						p += w * v4tov3(base * (skel->matrices[b] * m->skin->invMatrices[b] * v));
 				}
 			} else
 				p = v4tov3(world * v);
@@ -1045,6 +1054,46 @@ xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius)
 	*radius = v3norm(bmax - bmin) * 0.5f;
 	mdl->sphere[0] = center->x; mdl->sphere[1] = center->y; mdl->sphere[2] = center->z;
 	mdl->sphere[3] = *radius;
+}
+
+// design B: move a skinned model to a rigid, base-rooted skeleton.  The
+// skin's vertices and inverse binds are moved into the skeleton base frame
+// (xSkeletonBaseMatrix), so at bind the bone transform and the inverse bind
+// are each rigid -- a unit dual quaternion -- and the model's placement and
+// scale ride in the world matrix at draw time instead of hiding in the skin.
+// Idempotent-unsafe: run once, on a freshly converted model.
+void
+xReRootSkin(xModel *mdl)
+{
+	xSkeleton *s = mdl->skel;
+	if(s == nil)
+		return;
+	xSkeletonResetMatrices(s);
+	xSkeletonUpdateMatrices(s);
+	Mat4 C = xSkeletonBaseMatrix(s);
+	Mat4 Cinv = m4inverse(C);
+
+	// capture the model-space bind sphere before the vertices move
+	// (nodeBounds sends skinned meshes back through the base)
+	Vec3 c; float r;
+	mdl->sphere[3] = 0.0f;
+	xModelBoundingSphere(mdl, &c, &r);
+
+	for(int i = 0; i < mdl->numMeshes; i++) {
+		xMesh *m = mdl->meshes[i];
+		if(m->skin == nil || m->geo == nil)
+			continue;
+		xGeometry *g = m->geo;
+		for(int j = 0; j < g->numVertices; j++) {
+			xVertex *vx = &g->vertices[j];
+			Vec3 p = m4xformPoint(&Cinv, vec3(vx->vtx[0], vx->vtx[1], vx->vtx[2]));
+			vx->vtx[0] = p.x; vx->vtx[1] = p.y; vx->vtx[2] = p.z;
+			Vec3 nn = v3normalized(m4xformVec(&Cinv, vec3(vx->nrm[0], vx->nrm[1], vx->nrm[2])));
+			vx->nrm[0] = nn.x; vx->nrm[1] = nn.y; vx->nrm[2] = nn.z;
+		}
+		for(int b = 0; b < m->skin->numBones; b++)
+			m->skin->invMatrices[b] = m->skin->invMatrices[b] * C;
+	}
 }
 
 

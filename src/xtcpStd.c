@@ -39,7 +39,7 @@ getLightBlock(uint128 *lightDirs, Vec4 *lightCols)
 	for(uint32 i = 0; i < nelem(xtcState.lights); i++) {
 		xtcLight *l = &xtcState.lights[i];
 		if(l->enabled && l->type == XTC_LIGHT_DIRECT && ndir < 4) {
-			dir = m4invXformVecO(&xtcState.world, l->direction);
+			dir = v3normalized(m4invXformVecO(&xtcState.world, l->direction));
 			d[0][ndir] = -dir.x;
 			d[1][ndir] = -dir.y;
 			d[2][ndir] = -dir.z;
@@ -78,7 +78,7 @@ getLightBlock8(uint128 *lightDirs, Vec4 *lightCols)
 	for(uint32 i = 0; i < nelem(xtcState.lights); i++) {
 		xtcLight *l = &xtcState.lights[i];
 		if(l->enabled && l->type == XTC_LIGHT_DIRECT && ndir < 8) {
-			dir = m4invXformVecO(&xtcState.world, l->direction);
+			dir = v3normalized(m4invXformVecO(&xtcState.world, l->direction));
 			d[(ndir&4)+0][ndir&3] = -dir.x;
 			d[(ndir&4)+1][ndir&3] = -dir.y;
 			d[(ndir&4)+2][ndir&3] = -dir.z;

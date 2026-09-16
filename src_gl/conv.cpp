@@ -267,10 +267,10 @@ convertAssimpMaterial(const aiScene *scene, aiMaterial *m)
 
 	aiColor4D color(1.0f, 1.0f, 1.0f, 1.0f);
 	if(m->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS)
-		xmat->material.diffuse = vec4(color.r, color.g, color.b, color.a);
+		xmat->material.diffuse = vec4(color.r, color.g, color.b, 1.0f);	// alpha is the texture's; a 0 here blends the mesh away
 	// no ambient colour (glTF): light it like diffuse
 	if(m->Get(AI_MATKEY_COLOR_AMBIENT, color) == AI_SUCCESS)
-		xmat->material.ambient = vec4(color.r, color.g, color.b, color.a);
+		xmat->material.ambient = vec4(color.r, color.g, color.b, 1.0f);
 	else
 		xmat->material.ambient = xmat->material.diffuse;
 	if(m->Get(AI_MATKEY_COLOR_SPECULAR, color) == AI_SUCCESS)

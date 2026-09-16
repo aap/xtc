@@ -29,18 +29,21 @@ xSkeletonResetMatrices(xSkeleton *s)
 		s->matrices[i] = s->bones[i].node->localMatrix;
 }
 
-// the transform of everything above the root bone,
-// so skeleton matrices end up in model space
-static Mat4
-ancestorMatrix(xNode *n)
+// the transform of the model above the skeleton's root bone: where the
+// skeleton is anchored, and the world matrix a skinned mesh is placed
+// with.  The skeleton composes only from the root bone down, so its
+// matrices stay rigid -- the model's placement (with its scale) lives
+// here, in the world matrix, not in the skin.
+Mat4
+xSkeletonBaseMatrix(xSkeleton *s)
 {
 	Mat4 m = m4ident();
-	for(n = n->parent; n; n = n->parent)
+	for(xNode *n = s->bones[0].node->parent; n; n = n->parent)
 		m = n->localMatrix * m;
 	return m;
 }
 
-// compose local matrices into model space matrices
+// compose local matrices into matrices relative to the skeleton base
 void
 xSkeletonUpdateMatrices(xSkeleton *s)
 {
@@ -50,7 +53,6 @@ xSkeletonUpdateMatrices(xSkeleton *s)
 	int sp = 0;
 	stack[sp++] = 0;
 
-	s->matrices[0] = ancestorMatrix(s->bones[0].node) * s->matrices[0];
 	int parent = 0;
 	for(int i = 1; i < s->numBones; i++) {
 		xBone *b = &s->bones[i];

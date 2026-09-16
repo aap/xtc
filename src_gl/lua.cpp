@@ -934,6 +934,10 @@ L_importScene(lua_State *L)
 			xSkeletonUpdateMatrices(mdl->skel);
 		}
 	}
+	// design B: rigid, base-rooted skeleton -- after the model is fully
+	// oriented (the y-up rootMatrix above), so the base and the stored
+	// bounding sphere are in the final model space
+	xReRootSkin(mdl);
 	xAnimList *anims = convertAssimpAnimations(scene, mdl);
 	buildXModel(mdl);
 	mkptr(L, "xModel", mdl);
