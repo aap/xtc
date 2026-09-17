@@ -26,7 +26,7 @@ static char modelName[64] = "cow";
 static xModel *model;
 static xAnimList *anims;
 static xAnimPlayer *player;
-static int clip, playing = 1, spin, quant;
+static int clip, playing = 1, spin, quant, dqmode;
 static float angle = 1.3f;
 static Vec3 center;
 static float camTheta = 0.7f, camPhi = 0.25f, camDist = 3.0f;
@@ -102,6 +102,8 @@ load(void)
 		return;
 	}
 	buildXModel(model);
+	if(dqmode)
+		xModelUseDQ(model);
 	xModelBoundingSphere(model, &center, &radius);
 	camDist = 2.1f*radius;
 	printf("skinview: %s: %d meshes, %d bones, radius %g\n", modelName,
@@ -165,6 +167,7 @@ main(int argc, char *argv[])
 		for(;;) {
 			if(strncmp(a, "pause:", 6) == 0) { playing = 0; a += 6; }
 			else if(strncmp(a, "q:", 2) == 0) { quant = 1; a += 2; }
+			else if(strncmp(a, "dq:", 3) == 0) { dqmode = 1; a += 3; }
 			else break;
 		}
 		if(a[0] != '-' && a[0] != '/' && strlen(a) < sizeof(modelName))

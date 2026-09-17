@@ -92,21 +92,28 @@ xAnimPlayerSetAnim(xAnimPlayer *p, xAnimation *a)
 	xModel *mdl = p->model;
 
 	free(p->targets);
+	free(p->bone);
 	p->anim = a;
 	p->time = 0.0f;
 	p->targets = nil;
+	p->bone = nil;
 	if(a == nil)
 		return;
 
+	p->bone = (int*)emalloc(a->numChannels * sizeof(int));
 	p->targets = (Mat4**)emalloc(a->numChannels * sizeof(Mat4*));
 	for(int i = 0; i < a->numChannels; i++) {
 		xAnimChannel *ch = &a->channels[i];
 		int bi = ch->id;
 		if(bi < 0 && mdl->skel)
 			bi = findBone(mdl->skel, ch->name);
-		if(bi >= 0 && mdl->skel && bi < mdl->skel->numBones)
-			p->targets[i] = &mdl->skel->local[bi].m;
-		else {
+		if(bi >= 0 && mdl->skel && bi < mdl->skel->numBones) {
+			p->bone[i] = bi;
+			p->targets[i] = nil;
+			continue;
+		}
+		{
+			p->bone[i] = -1;
 			xNode *n = findXNode(mdl->root, ch->name);
 			if(n == nil)
 				printf("warning: no node for channel %s\n", ch->name);
@@ -203,12 +210,21 @@ xAnimPlayerApply(xAnimPlayer *p)
 	if(a) {
 		for(int i = 0; i < a->numChannels; i++) {
 			xAnimChannel *c = &a->channels[i];
-			Mat4 *target = p->targets[i];
-			if(target == nil)
-				continue;
-			// the bind pose is what's in the target right now:
-			// bones were just reset, plain nodes keep their matrix
-			*target = sampleChannel(c, p->time, *target);
+			if(p->bone[i] >= 0) {
+				// a skeleton bone: sample the pose (a matrix; the
+				// bind for missing tracks is the bone's node local)
+				// and store it into local in the skeleton's rep
+				int bi = p->bone[i];
+				Mat4 posed = sampleChannel(c, p->time, skel->bones[bi].node->localMatrix);
+				if(skel->rep == XFORM_DQ)
+					skel->local[bi].dq = dfrommat(posed);
+				else
+					skel->local[bi].m = posed;
+			} else if(p->targets[i]) {
+				// a plain node keeps its matrix as the bind
+				Mat4 *target = p->targets[i];
+				*target = sampleChannel(c, p->time, *target);
+			}
 		}
 	}
 	if(skel)

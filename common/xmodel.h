@@ -59,8 +59,8 @@ STRUCT(xGeometry) {
 // a bone transform in either representation, selected by the skin's /
 // skeleton's rep; one union slot (Mat4-sized) so a switch, not a second
 // array, carries the doubling.  DQ uses the first two qwords (r, d).
-enum { XFORM_MATRIX, XFORM_DQ };
 typedef union xXform { Mat4 m; DualQuat dq; } xXform;
+static inline Mat4 xXformMat(int rep, xXform x) { return rep == XFORM_DQ ? dtomat4(x.dq) : x.m; }
 
 STRUCT(xSkin) {
 	int numBones;
@@ -165,6 +165,8 @@ void buildXModel(xModel *mdl);
 // the skin's vertices and inverse binds so the skeleton stays rigid and the
 // model's placement/scale rides in the world matrix (xSkeletonBaseMatrix)
 void xReRootSkin(xModel *mdl);
+// switch a loaded skinned model to the dual-quaternion rep (testing)
+void xModelUseDQ(xModel *mdl);
 // bind pose bounding sphere in model space
 void xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius);
 
@@ -220,8 +222,10 @@ STRUCT(xAnimPlayer) {
 	float time;
 	xAnimation *anim;
 	xModel *model;
-	// per channel: the matrix the channel writes.
-	// bones: the skeleton's local matrix, other nodes: the node's local matrix
+	// per channel: a skeleton bone (bone[i] >= 0), whose local gets the
+	// pose in the skeleton's rep, or a plain node whose local matrix the
+	// channel writes (bone[i] < 0, targets[i] the matrix)
+	int *bone;
 	Mat4 **targets;
 };
 xAnimPlayer *xAnimPlayerCreate(xModel *mdl);

@@ -339,8 +339,9 @@ struct xtcState
 	xtcLight lights[8];
 
 	// for the skin pipeline, aligned so a ref can pick them up
-	Mat4 boneMatrices[64] __attribute__((aligned(16)));
+	Mat4 boneMatrices[64] __attribute__((aligned(16)));	// or DualQuat[64] when boneRep is DQ
 	int numBoneMatrices;
+	int boneRep;		// XFORM_MATRIX | XFORM_DQ
 
 	// bumped by the setters, so a pipeline can tell what changed since
 	// it last uploaded: the matrices and their constants, the lights

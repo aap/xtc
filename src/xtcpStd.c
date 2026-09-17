@@ -231,6 +231,24 @@ upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 	// once per draw, the batches never touch that part of VU memory
 	if(pipe->code == &xtcCodeStdSkin && xtcState.numBoneMatrices > 0) {
 		int n = 4*xtcState.numBoneMatrices;
+		if(xtcState.boneRep == XFORM_DQ) {
+			// dual quaternions straight from a DQ skeleton -- no
+			// conversion, no arm to guess: r at +0, d at +1, padded
+			// to the 4 qword slots the skin data indexes
+			DualQuat *duals = (DualQuat*)xtcState.boneMatrices;
+			mdmaCnt(l, n);
+				mdmaVifStCycl(l, 4,4, 0);
+				mdmaBeginUnpack(l, STD_BONEMATRICES, n, UNPACK_V4_32, 0);
+				for(int i = 0; i < xtcState.numBoneMatrices; i++) {
+					DualQuat *d = &duals[i];
+					mdmaAddF(l, d->r.x, d->r.y, d->r.z, d->r.w);
+					mdmaAddF(l, d->d.x, d->d.y, d->d.z, d->d.w);
+					mdmaAddF(l, 0.0f, 0.0f, 0.0f, 0.0f);
+					mdmaAddF(l, 0.0f, 0.0f, 0.0f, 0.0f);
+				}
+				mdmaEndUnpack(l);
+			mdmaCloseTag(l);
+		} else {
 #if STD_DQSKIN
 		// converted in place in the list: 4 qwords per bone, R, T, two spare
 		Quat r0 = qident();
@@ -257,6 +275,7 @@ upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 			mdmaVifStCycl(l, 4,4, 0);
 			mdmaVifUnpack(l, STD_BONEMATRICES, n, UNPACK_V4_32, 0);
 #endif
+		}
 	}
 
 	// TODO: want TME bit more elegantly
@@ -341,7 +360,8 @@ upload(xtcPipeline *pipe, xtcPrimType primtype, uint32 stages)
 			// dequantizing loop of its own, so it gets the record
 			// dequantized in place first
 			int q = stages & XTCP_ST_DECOMP16;
-			if(skin && STD_DQSKIN) {
+			int useDQ = xtcState.boneRep == XFORM_DQ || STD_DQSKIN;
+			if(skin && useDQ) {
 				if(q) chain[n++] = st[STD_STAGE_PREP_V16T16_5];
 				chain[n++] = st[STD_STAGE_PREP_DQSKIN_V32T32C8N8];
 			} else if(skin)

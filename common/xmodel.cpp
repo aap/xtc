@@ -1064,6 +1064,29 @@ xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius)
 // are each rigid -- a unit dual quaternion -- and the model's placement and
 // scale ride in the world matrix at draw time instead of hiding in the skin.
 // Idempotent-unsafe: run once, on a freshly converted model.
+// switch a loaded (matrix) skinned model to the dual-quaternion rep, for
+// testing the DQ path before the converter emits it: rigid inverse binds
+// become unit DQs (dfrommat, offline-style), and the skeleton recomposes.
+void
+xModelUseDQ(xModel *mdl)
+{
+	for(int i = 0; i < mdl->numMeshes; i++) {
+		xSkin *s = mdl->meshes[i]->skin;
+		if(s == nil)
+			continue;
+		s->rep = XFORM_DQ;
+		for(int b = 0; b < s->numBones; b++) {
+			Mat4 m = s->invbind[b].m;
+			s->invbind[b].dq = dfrommat(m);
+		}
+	}
+	if(mdl->skel) {
+		mdl->skel->rep = XFORM_DQ;
+		xSkeletonResetMatrices(mdl->skel);
+		xSkeletonUpdateMatrices(mdl->skel);
+	}
+}
+
 void
 xReRootSkin(xModel *mdl)
 {

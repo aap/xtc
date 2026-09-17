@@ -245,6 +245,7 @@ void xtcSetViewMatrix(const Mat4 *mat);
 void xtcSetWorldMatrix(const Mat4 *mat);
 Mat4 xtcGetWorldMatrix(void);
 void xtcSetBoneMatrices(const Mat4 *matrices, int n);
+void xtcSetBoneDuals(const DualQuat *duals, int n);
 
 void xtcViewport(int x, int y, int width, int height);
 void xtcDepthRange(int near, int far);

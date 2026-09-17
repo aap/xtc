@@ -351,6 +351,7 @@ static inline DualQuat dmul(DualQuat p, DualQuat q) {
 }
 // the conjugate for the point sandwich: conj r, -conj d
 static inline DualQuat dconj(DualQuat d) { return dquat(qconj(d.r), qneg(qconj(d.d))); }
+static inline DualQuat dneg(DualQuat d) { return dquat(qneg(d.r), qneg(d.d)); }
 // unit dual quaternion: real part unit, dual part orthogonal to it
 static inline DualQuat dnormalized(DualQuat d) {
 	float rr = qnormsq(d.r);
@@ -375,6 +376,9 @@ static inline Mat4 dtomat4(DualQuat d) {
 	m.w = vec4(t.x, t.y, t.z, 1.0f);
 	return m;
 }
+
+// which representation an xXform / a bone table is in
+enum { XFORM_MATRIX, XFORM_DQ };
 
 
 #ifdef __cplusplus

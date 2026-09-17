@@ -90,12 +90,25 @@ xMeshSelectShader(xMesh *xm, xSkeleton *skel)
 	if(xm->skin && skel) {
 		xtcSetPipeline(skinPipeline);
 
-		static Mat4 matrices[64];
 		xSkin *skin = xm->skin;
 		assert(skin->numBones <= 64);
-		for(int i = 0; i < skin->numBones; i++)
-			matrices[i] = skel->composed[i].m * skin->invbind[i].m;
-		xtcSetBoneMatrices(&matrices[0], skin->numBones);
+		if(skin->rep == XFORM_DQ && skel->rep == XFORM_DQ) {
+			// bone = composed . inverse bind, as dual quaternions
+			static DualQuat duals[64];
+			for(int i = 0; i < skin->numBones; i++) {
+				duals[i] = dmul(skel->composed[i].dq, skin->invbind[i].dq);
+				// the per-vertex blend sums these, so bones that share
+				// a vertex must share an arm: agree each with bone 0
+				if(i > 0 && qdot(duals[i].r, duals[0].r) < 0.0f)
+					duals[i] = dneg(duals[i]);
+			}
+			xtcSetBoneDuals(&duals[0], skin->numBones);
+		} else {
+			static Mat4 matrices[64];
+			for(int i = 0; i < skin->numBones; i++)
+				matrices[i] = skel->composed[i].m * skin->invbind[i].m;
+			xtcSetBoneMatrices(&matrices[0], skin->numBones);
+		}
 	} else
 		xtcSetPipeline(xDrawPipeline ? xDrawPipeline : defaultPipeline);
 }
@@ -201,8 +214,8 @@ xSkeletonDraw(xSkeleton *s)
 	xtcBegin(XTC_LINELIST);
 	for(int i = 1; i < s->numBones; i++) {
 		xBone *b = &s->bones[i];
-		Vec4 p1 = s->composed[parent].m * vec4(0.0f, 0.0f, 0.0f, 1.0f);
-		Vec4 p2 = s->composed[i].m * vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		Vec4 p1 = xXformMat(s->rep, s->composed[parent]) * vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		Vec4 p2 = xXformMat(s->rep, s->composed[i]) * vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		xtcColor(255, 255, 255, 255);
 		xtcVertex(p1.x, p1.y, p1.z);
 		xtcColor(255, 128, 0, 255);
@@ -236,9 +249,9 @@ xNodeDraw(xNode *n, xSkeleton *skel, int flags)
 	Mat4 oldmat = xtcGetWorldMatrix();
 	int b = boneOfNode(skel, n);
 	static int dbg = 0;
-	if(0) { dbg++; Mat4 m = b >= 0 ? skel->composed[b].m : n->localMatrix; printf("xdraw: node %s bone %d meshes %d  w %g %g %g  x %g %g %g\n", n->name ? n->name : "?", b, n->numMeshes, m.w.x, m.w.y, m.w.z, m.x.x, m.x.y, m.x.z); }
+	if(0) { dbg++; Mat4 m = b >= 0 ? xXformMat(skel->rep, skel->composed[b]) : n->localMatrix; printf("xdraw: node %s bone %d meshes %d  w %g %g %g  x %g %g %g\n", n->name ? n->name : "?", b, n->numMeshes, m.w.x, m.w.y, m.w.z, m.x.x, m.x.y, m.x.z); }
 	if(b >= 0)
-		xtcSetWorldMatrix(skinMatrix * skel->composed[b].m);
+		xtcSetWorldMatrix(skinMatrix * xXformMat(skel->rep, skel->composed[b]));
 	else
 		xtcSetWorldMatrix(oldmat * n->localMatrix);
 	if(!n->hidden)

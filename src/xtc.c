@@ -124,6 +124,19 @@ xtcSetBoneMatrices(const Mat4 *matrices, int n)
 		n = nelem(xtcState.boneMatrices);
 	memcpy(xtcState.boneMatrices, matrices, n*sizeof(Mat4));
 	xtcState.numBoneMatrices = n;
+	xtcState.boneRep = XFORM_MATRIX;
+}
+
+// dual quaternions straight from a DQ skeleton: stored in the same buffer
+// (a DQ is half a Mat4), uploaded without the matrix->DQ conversion
+void
+xtcSetBoneDuals(const DualQuat *duals, int n)
+{
+	if(n > (int)nelem(xtcState.boneMatrices))
+		n = nelem(xtcState.boneMatrices);
+	memcpy(xtcState.boneMatrices, duals, n*sizeof(DualQuat));
+	xtcState.numBoneMatrices = n;
+	xtcState.boneRep = XFORM_DQ;
 }
 
 void
