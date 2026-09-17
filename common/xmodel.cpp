@@ -53,13 +53,13 @@ allocXNode(void)
 xSkin*
 allocXSkin(int nbones, int nvertices)
 {
-	uint32 sz = sizeof(xSkin) +
-		nvertices*(sizeof(uint8[4]) + sizeof(float[4]) +
-		nbones*sizeof(Mat4));
+	uint32 sz = sizeof(xSkin) + nbones*sizeof(xXform) +
+		nvertices*(sizeof(uint8[4]) + sizeof(float[4]));
 	xSkin *s = (xSkin*)emalloc(sz);
 	s->numBones = nbones;
-	s->invMatrices = (Mat4*)(s+1);
-	s->weights = (float*)(s->invMatrices + s->numBones);
+	s->rep = XFORM_MATRIX;
+	s->invbind = (xXform*)(s+1);
+	s->weights = (float*)(s->invbind + s->numBones);
 	s->indices = (uint8*)(s->weights + nvertices*4);
 	return s;
 }
@@ -68,10 +68,12 @@ xSkeleton*
 allocXSkeleton(int nbones)
 {
 	xSkeleton *s = (xSkeleton*)emalloc(sizeof(xSkeleton)
-		+ nbones*(sizeof(xBone) + sizeof(Mat4)));
+		+ nbones*(sizeof(xBone) + 2*sizeof(xXform)));
 	s->numBones = nbones;
+	s->rep = XFORM_MATRIX;
 	s->bones = (xBone*)(s+1);
-	s->matrices = (Mat4*)(s->bones+s->numBones);
+	s->local = (xXform*)(s->bones+s->numBones);
+	s->composed = s->local + s->numBones;
 	return s;
 }
 
@@ -262,7 +264,7 @@ writeXMesh(FILE *f, xModel *mdl, xMesh *mesh, int n)
 		}
 		for(int i = 0; i < s->numBones; i++) {
 			fprintf(f, "\t");
-			writeXMatrix(f, "invmat", s->invMatrices[i], 0);
+			writeXMatrix(f, "invmat", s->invbind[i].m, 0);
 		}
 	}
 
@@ -277,7 +279,7 @@ writeXSkeleton(FILE *f, xSkeleton *skel, int level)
 		xBone *b = &skel->bones[i];
 		const char *name = b->node ? b->node->name : "(null)";
 		OUT(f, "bone \"%s\" %d %d ", name, b->flag, b->tag);
-		writeXMatrix(f, "", skel->matrices[i], 0);
+		writeXMatrix(f, "", skel->composed[i].m, 0);
 	}
 }
 
@@ -863,7 +865,7 @@ loadXModelText(char *text, uint32 size)
 			assert(mesh->skin);
 			s = mesh->skin;
 			assert(nb < s->numBones);
-			s->invMatrices[nb++] = readXMatrix(tokens+1);
+			s->invbind[nb++].m = readXMatrix(tokens+1);
 			break;
 
 		case CMD_SKELETON:
@@ -882,7 +884,7 @@ loadXModelText(char *text, uint32 size)
 			b->node = findXNode(node, tokens[1]);
 			b->flag = atoi(tokens[2]);
 			b->tag = atoi(tokens[3]);
-			node->skel->matrices[nb] = readXMatrix(tokens+4);
+			node->skel->composed[nb].m = readXMatrix(tokens+4);
 			nb++;
 			break;
 
@@ -1022,7 +1024,7 @@ nodeBounds(xNode *n, const Mat4 &parent, xSkeleton *skel, Vec3 *bmin, Vec3 *bmax
 					float w = m->skin->weights[4*j+k];
 					int b = m->skin->indices[4*j+k];
 					if(w > 0.0f)
-						p += w * v4tov3(base * (skel->matrices[b] * m->skin->invMatrices[b] * v));
+						p += w * v4tov3(base * (skel->composed[b].m * m->skin->invbind[b].m * v));
 				}
 			} else
 				p = v4tov3(world * v);
@@ -1092,7 +1094,7 @@ xReRootSkin(xModel *mdl)
 			vx->nrm[0] = nn.x; vx->nrm[1] = nn.y; vx->nrm[2] = nn.z;
 		}
 		for(int b = 0; b < m->skin->numBones; b++)
-			m->skin->invMatrices[b] = m->skin->invMatrices[b] * C;
+			m->skin->invbind[b].m = m->skin->invbind[b].m * C;
 	}
 }
 
@@ -1274,10 +1276,10 @@ saveXSkinChunk(ChunkData *chk, xGeometry *geo, xSkin *skin)
 {
 	if(registerBlock(chk, skin, sizeof(*skin), 16))
 		return;
-	registerPointer(chk, &skin->invMatrices);
+	registerPointer(chk, &skin->invbind);
 	registerPointer(chk, &skin->indices);
 	registerPointer(chk, &skin->weights);
-	registerBlock(chk, skin->invMatrices, skin->numBones*sizeof(Mat4), 16);
+	registerBlock(chk, skin->invbind, skin->numBones*sizeof(xXform), 16);
 	registerBlock(chk, skin->indices, geo->numVertices*4*sizeof(*skin->indices), 4);
 	registerBlock(chk, skin->weights, geo->numVertices*4*sizeof(*skin->weights), 16);
 }
@@ -1306,8 +1308,10 @@ saveXSkeletonChunk(ChunkData *chk, xSkeleton *skel)
 	if(registerBlock(chk, skel, sizeof(*skel), 16))
 		return;
 	registerPointer(chk, &skel->bones);
-	registerPointer(chk, &skel->matrices);
-	registerBlock(chk, skel->matrices, skel->numBones*sizeof(*skel->matrices), 16);
+	registerPointer(chk, &skel->local);
+	registerPointer(chk, &skel->composed);
+	registerBlock(chk, skel->local, skel->numBones*sizeof(xXform), 16);
+	registerBlock(chk, skel->composed, skel->numBones*sizeof(xXform), 16);
 	registerBlock(chk, skel->bones, skel->numBones*sizeof(*skel->bones), PTR);
 	for(int i = 0; i < skel->numBones; i++)
 		registerPointer(chk, &skel->bones[i].node);

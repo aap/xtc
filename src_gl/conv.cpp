@@ -165,7 +165,7 @@ convertAssimpSkin(xMesh *xm, aiMesh *m, HierEntry *hier)
 			int vx = b->mWeights[j].mVertexId;
 			pushweight(w, idx, s->weights + vx*4, s->indices + vx*4);
 		}
-		convertMatrix(s->invMatrices[idx], b->mOffsetMatrix);
+		convertMatrix(s->invbind[idx].m, b->mOffsetMatrix);
 	}
 }
 
@@ -181,13 +181,13 @@ fixSkin(xMesh *m, xSkeleton *skel, HierEntry *hier)
 	for(int i = 0; i < 4*m->geo->numVertices; i++)
 		if(s->weights[i] > 0.0f)
 			s->indices[i] = hier[s->indices[i]].boneIdx;
-	// reshuffle matrices
-	u32 matsz = skel->numBones * sizeof(Mat4);
-	Mat4 *tmp = (Mat4*)malloc(matsz);
+	// reshuffle inverse binds
+	u32 matsz = skel->numBones * sizeof(xXform);
+	xXform *tmp = (xXform*)malloc(matsz);
 	for(int i = 0; i < s->numBones; i++)
 		if(hier[i].boneIdx >= 0)
-			tmp[hier[i].boneIdx] = s->invMatrices[i];
-	memcpy(s->invMatrices, tmp, matsz);
+			tmp[hier[i].boneIdx] = s->invbind[i];
+	memcpy(s->invbind, tmp, matsz);
 	free(tmp);
 	s->numBones = skel->numBones;
 }

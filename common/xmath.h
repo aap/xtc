@@ -329,6 +329,53 @@ static inline Quat qlog(Quat q) {
 static inline Quat qpow(Quat q, float a) { return qexp(qscale(a, qlog(q))); }
 static inline Quat qcross(Quat p, Quat q) { return qscale(0.5f, qsub(qmul(p, q), qmul(q, p))); }
 
+/*
+ * Dual quaternions: a rigid motion as a hand with a place -- the rotor r
+ * (the hand, arm and all) plus a dual part d = (t/2) r carrying the
+ * translation.  Composing with dmul carries the arm through the chain, so
+ * unlike qfrommat4 there is nothing to guess.  Minimal set, ported from
+ * aap's dirac-toy/math/dquat.js without the exp/log decomposition (nlerp
+ * is better behaved).  Layout is two qwords, r then d -- what the skin
+ * pipe wants (R at +0, T at +1).
+ */
+typedef struct { Quat r, d; } DualQuat;
+static inline DualQuat dquat(Quat r, Quat d) { DualQuat x; x.r = r; x.d = d; return x; }
+static inline DualQuat dident(void) { return dquat(qident(), quat(0.0f,0.0f,0.0f,0.0f)); }
+// rotation only, translation only, and the rigid motion translate . rotate
+static inline DualQuat drot(Quat r) { return dquat(r, quat(0.0f,0.0f,0.0f,0.0f)); }
+static inline DualQuat dtrans(Vec3 t) { return dquat(qident(), qscale(0.5f, quat(t.x,t.y,t.z,0.0f))); }
+static inline DualQuat dfromrt(Quat r, Vec3 t) { return dquat(r, qscale(0.5f, qmul(quat(t.x,t.y,t.z,0.0f), r))); }
+// dual quaternion product: r = p.r q.r, d = p.r q.d + p.d q.r
+static inline DualQuat dmul(DualQuat p, DualQuat q) {
+	return dquat(qmul(p.r,q.r), qadd(qmul(p.r,q.d), qmul(p.d,q.r)));
+}
+// the conjugate for the point sandwich: conj r, -conj d
+static inline DualQuat dconj(DualQuat d) { return dquat(qconj(d.r), qneg(qconj(d.d))); }
+// unit dual quaternion: real part unit, dual part orthogonal to it
+static inline DualQuat dnormalized(DualQuat d) {
+	float rr = qnormsq(d.r);
+	float n = 1.0f/sqrtf(rr);
+	float s = qdot(d.r, d.d)/rr;
+	return dquat(qscale(n, d.r), qscale(n, qsub(d.d, qscale(s, d.r))));
+}
+// a point through a unit dual quaternion (the sandwich on 1 + eps p)
+static inline Vec3 dxformPoint(DualQuat d, Vec3 p) {
+	DualQuat v = dquat(qident(), quat(p.x, p.y, p.z, 0.0f));
+	DualQuat s = dmul(d, dmul(v, dconj(d)));
+	return vec3(s.d.x, s.d.y, s.d.z);
+}
+// offline only (qfrommat4 cannot recover the arm; a converter thing like
+// m4inverse -- never on the VU)
+static inline DualQuat dfrommat(Mat4 m) {
+	return dfromrt(qnormalized(qfrommat4(m)), vec3(m.w.x, m.w.y, m.w.z));
+}
+static inline Mat4 dtomat4(DualQuat d) {
+	Mat4 m = qtomat4(d.r);
+	Quat t = qscale(2.0f, qmul(d.d, qconj(d.r)));
+	m.w = vec4(t.x, t.y, t.z, 1.0f);
+	return m;
+}
+
 
 #ifdef __cplusplus
 

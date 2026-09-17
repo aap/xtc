@@ -56,9 +56,16 @@ STRUCT(xGeometry) {
 	int *indices;
 };
 
+// a bone transform in either representation, selected by the skin's /
+// skeleton's rep; one union slot (Mat4-sized) so a switch, not a second
+// array, carries the doubling.  DQ uses the first two qwords (r, d).
+enum { XFORM_MATRIX, XFORM_DQ };
+typedef union xXform { Mat4 m; DualQuat dq; } xXform;
+
 STRUCT(xSkin) {
 	int numBones;
-	Mat4 *invMatrices;	// [numBones]
+	int rep;		// XFORM_MATRIX | XFORM_DQ
+	xXform *invbind;	// [numBones]  inverse bind pose
 	uint8 *indices;		// [4*numVertices]
 	float *weights;		// [4*numVertices]
 };
@@ -80,15 +87,18 @@ STRUCT(xBone) {
 };
 
 /*
- * Bones are stored in depth-first order with RenderWare-style
- * push/pop flags so the tree can be walked with a small stack.
- * matrices[] are in model space (relative to the xModel root);
- * before xSkeletonUpdateMatrices they hold the bones' local matrices.
+ * Bones are stored in depth-first order with RenderWare-style push/pop
+ * flags so the tree can be walked with a small stack.  local[] are the
+ * animated local transforms; xSkeletonUpdateMatrices composes them into
+ * composed[], relative to the skeleton base (xSkeletonBaseMatrix).  Both
+ * are in the skeleton's rep (matrix or dual quaternion).
  */
 STRUCT(xSkeleton) {
 	int numBones;
+	int rep;		// XFORM_MATRIX | XFORM_DQ
 	xBone *bones;
-	Mat4 *matrices;
+	xXform *local;		// [numBones] animated local transforms
+	xXform *composed;	// [numBones] composed transforms (base space)
 };
 xSkeleton *allocXSkeleton(int nbones);
 void xSkeletonResetMatrices(xSkeleton *s);

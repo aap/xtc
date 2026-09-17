@@ -94,7 +94,7 @@ xMeshSelectShader(xMesh *xm, xSkeleton *skel)
 		xSkin *skin = xm->skin;
 		assert(skin->numBones <= 64);
 		for(int i = 0; i < skin->numBones; i++)
-			matrices[i] = skel->matrices[i] * skin->invMatrices[i];
+			matrices[i] = skel->composed[i].m * skin->invbind[i].m;
 		xtcSetBoneMatrices(&matrices[0], skin->numBones);
 	} else
 		xtcSetPipeline(xDrawPipeline ? xDrawPipeline : defaultPipeline);
@@ -201,8 +201,8 @@ xSkeletonDraw(xSkeleton *s)
 	xtcBegin(XTC_LINELIST);
 	for(int i = 1; i < s->numBones; i++) {
 		xBone *b = &s->bones[i];
-		Vec4 p1 = s->matrices[parent] * vec4(0.0f, 0.0f, 0.0f, 1.0f);
-		Vec4 p2 = s->matrices[i] * vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		Vec4 p1 = s->composed[parent].m * vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		Vec4 p2 = s->composed[i].m * vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		xtcColor(255, 255, 255, 255);
 		xtcVertex(p1.x, p1.y, p1.z);
 		xtcColor(255, 128, 0, 255);
@@ -236,9 +236,9 @@ xNodeDraw(xNode *n, xSkeleton *skel, int flags)
 	Mat4 oldmat = xtcGetWorldMatrix();
 	int b = boneOfNode(skel, n);
 	static int dbg = 0;
-	if(0) { dbg++; Mat4 m = b >= 0 ? skel->matrices[b] : n->localMatrix; printf("xdraw: node %s bone %d meshes %d  w %g %g %g  x %g %g %g\n", n->name ? n->name : "?", b, n->numMeshes, m.w.x, m.w.y, m.w.z, m.x.x, m.x.y, m.x.z); }
+	if(0) { dbg++; Mat4 m = b >= 0 ? skel->composed[b].m : n->localMatrix; printf("xdraw: node %s bone %d meshes %d  w %g %g %g  x %g %g %g\n", n->name ? n->name : "?", b, n->numMeshes, m.w.x, m.w.y, m.w.z, m.x.x, m.x.y, m.x.z); }
 	if(b >= 0)
-		xtcSetWorldMatrix(skinMatrix * skel->matrices[b]);
+		xtcSetWorldMatrix(skinMatrix * skel->composed[b].m);
 	else
 		xtcSetWorldMatrix(oldmat * n->localMatrix);
 	if(!n->hidden)

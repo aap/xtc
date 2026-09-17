@@ -21,12 +21,19 @@ findBone(xSkeleton *skel, const char *str)
  * Skeleton
  */
 
-// bind pose: every bone's local matrix from its node
+// bind pose: every bone's local transform from its node
 void
 xSkeletonResetMatrices(xSkeleton *s)
 {
-	for(int i = 0; i < s->numBones; i++)
-		s->matrices[i] = s->bones[i].node->localMatrix;
+	for(int i = 0; i < s->numBones; i++) {
+		Mat4 m = s->bones[i].node->localMatrix;
+		if(s->rep == XFORM_DQ)
+			s->local[i].dq = dfrommat(m);	// offline-style extraction; a
+							// DQ pose player will build these
+							// straight from rotor + place
+		else
+			s->local[i].m = m;
+	}
 }
 
 // the transform of the model above the skeleton's root bone: where the
@@ -54,9 +61,13 @@ xSkeletonUpdateMatrices(xSkeleton *s)
 	stack[sp++] = 0;
 
 	int parent = 0;
+	s->composed[0] = s->local[0];		// root: composed local
 	for(int i = 1; i < s->numBones; i++) {
 		xBone *b = &s->bones[i];
-		s->matrices[i] = s->matrices[parent] * s->matrices[i];
+		if(s->rep == XFORM_DQ)
+			s->composed[i].dq = dmul(s->composed[parent].dq, s->local[i].dq);
+		else
+			s->composed[i].m = s->composed[parent].m * s->local[i].m;
 		if(b->flag & 1) stack[sp++] = parent;
 		parent = i;
 		if(b->flag & 2) parent = stack[--sp];
@@ -94,7 +105,7 @@ xAnimPlayerSetAnim(xAnimPlayer *p, xAnimation *a)
 		if(bi < 0 && mdl->skel)
 			bi = findBone(mdl->skel, ch->name);
 		if(bi >= 0 && mdl->skel && bi < mdl->skel->numBones)
-			p->targets[i] = &mdl->skel->matrices[bi];
+			p->targets[i] = &mdl->skel->local[bi].m;
 		else {
 			xNode *n = findXNode(mdl->root, ch->name);
 			if(n == nil)

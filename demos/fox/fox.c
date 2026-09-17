@@ -291,7 +291,7 @@ foxCapturePose(void)
 {
 	if(foxFadePose == nil || fox->skel == nil || foxPlayer->anim == nil)
 		return;
-	memcpy(foxFadePose, fox->skel->matrices, fox->skel->numBones*sizeof(Mat4));
+	memcpy(foxFadePose, fox->skel->composed, fox->skel->numBones*sizeof(Mat4));
 	foxFadeLeft = FOX_FADE;
 }
 
@@ -428,7 +428,7 @@ foxSkelMiddle(void)
 		return foxBindMiddle;
 	c = vec3(0.0f, 0.0f, 0.0f);
 	for(i = 0; i < s->numBones; i++)
-		c = v3add(c, v4tov3(s->matrices[i].w));
+		c = v3add(c, v4tov3(s->composed[i].m.w));
 	c = v3scale(1.0f/s->numBones, c);
 	/* the skeleton is relative to its base now (design B); bring the
 	 * middle into model space, where foxCenter lives */
@@ -541,7 +541,7 @@ foxBlendPose(float f)
 	if(foxFadePose == nil || fox->skel == nil)
 		return;
 	for(i = 0; i < fox->skel->numBones; i++) {
-		m = &fox->skel->matrices[i];
+		m = &fox->skel->composed[i].m;
 		o = &foxFadePose[i];
 		a = (float*)m;
 		b = (float*)o;

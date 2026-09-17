@@ -578,12 +578,13 @@ local function emitMesh(sym, mesh, k, pipes, strip)
 		local s = mesh.skin
 		label(sym .. "_skin", "xSkin")
 		emitf("\t.int %d\t; numBones", s.numBones)
+		emitf("\t.int 0\t; rep = XFORM_MATRIX")
 		emitPtr(sym .. "_invmat")
 		emitPtr(not noGeo and sym .. "_skinidx")
 		emitPtr(not noGeo and sym .. "_skinwt")
 		emit("")
 		emit(".align 4")
-		emitf("%s_invmat:\t; Mat4[]", sym)
+		emitf("%s_invmat:\t; xXform[] (inverse bind)", sym)
 		for _, m in ipairs(s.inv) do emitMatrix(m) end
 		if not noGeo then
 			emit("")
@@ -709,8 +710,10 @@ local function emitNode(node)
 		local sym = node.sym .. "_skel"
 		label(sym, "xSkeleton")
 		emitf("\t.int %d\t; numBones", s.numBones)
+		emitf("\t.int 0\t; rep = XFORM_MATRIX")
 		emitPtr(sym .. "_bones")
-		emitPtr(sym .. "_matrices")
+		emitPtr(sym .. "_local")
+		emitPtr(sym .. "_composed")
 		emit(".align 4")
 		label(sym .. "_bones", "xBone[]: flag, tag, node")
 		for _, b in ipairs(s.bones) do
@@ -718,7 +721,12 @@ local function emitNode(node)
 			emitPtr(assert(nodeSyms[b.name], "bone without node: " .. b.name))
 		end
 		emit(".align 4")
-		label(sym .. "_matrices", "Mat4[]")
+		-- local[] is a placeholder: xSkeletonResetMatrices fills it from the
+		-- nodes at load, before composing into composed[]
+		label(sym .. "_local", "xXform[] (animated local)")
+		for _, b in ipairs(s.bones) do emitMatrix(b.m) end
+		emit(".align 4")
+		label(sym .. "_composed", "xXform[] (composed)")
 		for _, b in ipairs(s.bones) do emitMatrix(b.m) end
 	end
 end
