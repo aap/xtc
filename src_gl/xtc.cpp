@@ -472,6 +472,18 @@ xtcSetBoneMatrices(const Mat4 *matrices, int n)
 		uniformState.boneMatrices[i] = GLM_MAT4(&matrices[i]);
 }
 
+// the GL skin shader is matrix-only; a DQ bone table renders through it by
+// converting each bone to a matrix (the dev viewer, so LBS blend is fine)
+void
+xtcSetBoneDuals(const DualQuat *duals, int n)
+{
+	if(n > 64) n = 64;
+	for(int i = 0; i < n; i++) {
+		Mat4 m = dtomat4(duals[i]);
+		uniformState.boneMatrices[i] = GLM_MAT4(&m);
+	}
+}
+
 
 void
 xtcViewport(int x, int y, int width, int height)

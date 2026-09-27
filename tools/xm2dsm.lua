@@ -45,6 +45,7 @@ while i <= #args do
 	elseif a == "-strips" then stripsPath = args[i+1]; i = i + 2
 	elseif a == "-nogeo" then noGeo = true; i = i + 1
 	elseif a == "-quant" then quantFlag = true; i = i + 1
+	elseif a == "-dq" then dqRep = true; i = i + 1
 	elseif a == "-link" then linkFlag = true; i = i + 1
 	elseif a:sub(1, 1) == "-" then error("unknown option " .. a)
 	else path = a; i = i + 1 end
@@ -181,6 +182,38 @@ local function tokenize(line)
 	return t
 end
 
+-- quat (x y z w) rotation columns, matching qtomat4
+local function qmatCols(q)
+	local x,y,z,w = q[1],q[2],q[3],q[4]
+	local xx,yy,zz = x*x,y*y,z*z
+	local xy,xz,yz = x*y,x*z,y*z
+	local wx,wy,wz = w*x,w*y,w*z
+	return { 1-2*(yy+zz), 2*(xy+wz), 2*(xz-wy) },
+	       { 2*(xy-wz), 1-2*(xx+zz), 2*(yz+wx) },
+	       { 2*(xz+wy), 2*(yz-wx), 1-2*(xx+yy) }
+end
+-- inverse of a rigid forward bind (quat, pos) as a 12-value matrix: [R' | -R'p]
+local function invBindMatrix(q, p)
+	local cx,cy,cz = qmatCols(q)
+	local tx = -(cx[1]*p[1]+cx[2]*p[2]+cx[3]*p[3])
+	local ty = -(cy[1]*p[1]+cy[2]*p[2]+cy[3]*p[3])
+	local tz = -(cz[1]*p[1]+cz[2]*p[2]+cz[3]*p[3])
+	return { cx[1],cy[1],cz[1], cx[2],cy[2],cz[2], cx[3],cy[3],cz[3], tx,ty,tz }
+end
+local function qmul(p, q)
+	return { p[4]*q[1] + p[1]*q[4] + p[2]*q[3] - p[3]*q[2],
+	         p[4]*q[2] + p[2]*q[4] + p[3]*q[1] - p[1]*q[3],
+	         p[4]*q[3] + p[3]*q[4] + p[1]*q[2] - p[2]*q[1],
+	         p[4]*q[4] - p[1]*q[1] - p[2]*q[2] - p[3]*q[3] }
+end
+-- inverse bind dual quat (r, d) from forward bind (quat, pos): drev(dfromrt)
+local function invBindDQ(q, p)
+	local fd = qmul({p[1],p[2],p[3],0}, q)
+	local ir = { -q[1],-q[2],-q[3],q[4] }
+	local id = { -0.5*fd[1], -0.5*fd[2], -0.5*fd[3], 0.5*fd[4] }
+	return ir, id
+end
+
 local function readMatrix(t, base)
 	local m = {}
 	for k = 1, 12 do m[k] = tonumber(t[base + k - 1]) end
@@ -225,7 +258,7 @@ local function readXm(file)
 		elseif c == "t" then mesh.t[#mesh.t+1] = { tonumber(t[2]), tonumber(t[3]) }
 		elseif c == "c" then mesh.c[#mesh.c+1] = { tonumber(t[2]), tonumber(t[3]), tonumber(t[4]), tonumber(t[5]) }
 		elseif c == "f" then mesh.f[#mesh.f+1] = { tonumber(t[2]), tonumber(t[3]), tonumber(t[4]) }
-		elseif c == "skin" then mesh.skin = { numBones = tonumber(t[2]), w = {}, i = {}, inv = {} }
+		elseif c == "skin" then mesh.skin = { numBones = tonumber(t[2]), w = {}, i = {}, inv = {}, bind = {} }
 		elseif c == "w" then
 			local s = mesh.skin
 			s.w[#s.w+1] = { tonumber(t[2]), tonumber(t[3]), tonumber(t[4]), tonumber(t[5]) }
@@ -235,6 +268,12 @@ local function readXm(file)
 		elseif c == "invmat" then
 			local s = mesh.skin
 			s.inv[#s.inv+1] = readMatrix(t, 2)
+		elseif c == "bindPose" then
+			local s = mesh.skin
+			local q = { tonumber(t[2]),tonumber(t[3]),tonumber(t[4]),tonumber(t[5]) }
+			local p = { tonumber(t[6]),tonumber(t[7]),tonumber(t[8]) }
+			s.bind[#s.bind+1] = { q = q, p = p }
+			s.inv[#s.inv+1] = invBindMatrix(q, p)		-- matrix form for modelSphere
 		elseif c == "node" then
 			local n = { name = t[2], tag = -1, children = {}, meshes = {}, parent = node }
 			if node then node.children[#node.children+1] = n else mdl.root = n end
@@ -578,14 +617,25 @@ local function emitMesh(sym, mesh, k, pipes, strip)
 		local s = mesh.skin
 		label(sym .. "_skin", "xSkin")
 		emitf("\t.int %d\t; numBones", s.numBones)
-		emitf("\t.int 0\t; rep = XFORM_MATRIX")
+		emitf("\t.int %d\t; rep", dqRep and 1 or 0)
 		emitPtr(sym .. "_invmat")
 		emitPtr(not noGeo and sym .. "_skinidx")
 		emitPtr(not noGeo and sym .. "_skinwt")
 		emit("")
 		emit(".align 4")
 		emitf("%s_invmat:\t; xXform[] (inverse bind)", sym)
-		for _, m in ipairs(s.inv) do emitMatrix(m) end
+		if dqRep then
+			assert(#s.bind == #s.inv, "-dq needs bindPose inverse binds")
+			for _, b in ipairs(s.bind) do
+				local ir, id = invBindDQ(b.q, b.p)
+				emitf("\t.float %s", floats(ir))
+				emitf("\t.float %s", floats(id))
+				emit("\t.float 0.0, 0.0, 0.0, 0.0")
+				emit("\t.float 0.0, 0.0, 0.0, 0.0")
+			end
+		else
+			for _, m in ipairs(s.inv) do emitMatrix(m) end
+		end
 		if not noGeo then
 			emit("")
 			emit(".align 4")
@@ -710,7 +760,7 @@ local function emitNode(node)
 		local sym = node.sym .. "_skel"
 		label(sym, "xSkeleton")
 		emitf("\t.int %d\t; numBones", s.numBones)
-		emitf("\t.int 0\t; rep = XFORM_MATRIX")
+		emitf("\t.int %d\t; rep", dqRep and 1 or 0)
 		emitPtr(sym .. "_bones")
 		emitPtr(sym .. "_local")
 		emitPtr(sym .. "_composed")

@@ -177,6 +177,9 @@ $(CHKDIR)/models/%.dsm: local/models/%.xm $(CHKDIR)/models/%.strips $(XM2DSMDEP)
 $(CHKDIR)/models/%_Q.dsm: local/models/%.xm $(CHKDIR)/models/%.strips $(XM2DSMDEP)
 	@mkdir -p $(@D)
 	$(XM2DSM) -strips $(CHKDIR)/models/$*.strips -nogeo -quant $< > $@
+$(CHKDIR)/models/%_dq.dsm: local/models/%.xm $(CHKDIR)/models/%.strips $(XM2DSMDEP)
+	@mkdir -p $(@D)
+	$(XM2DSM) -strips $(CHKDIR)/models/$*.strips $(CHKFLAGS) -dq $< > $@
 $(CHKDIR)/models/%_anim.dsm: local/models/%.xan tools/xan2dsm.lua
 	@mkdir -p $(@D)
 	lua tools/xan2dsm.lua -name $*_anim $< > $@

@@ -352,6 +352,8 @@ static inline DualQuat dmul(DualQuat p, DualQuat q) {
 // the conjugate for the point sandwich: conj r, -conj d
 static inline DualQuat dconj(DualQuat d) { return dquat(qconj(d.r), qneg(qconj(d.d))); }
 static inline DualQuat dneg(DualQuat d) { return dquat(qneg(d.r), qneg(d.d)); }
+// the inverse of a unit dual quaternion (a rigid motion): conjugate both
+static inline DualQuat drev(DualQuat d) { return dquat(qconj(d.r), qconj(d.d)); }
 // unit dual quaternion: real part unit, dual part orthogonal to it
 static inline DualQuat dnormalized(DualQuat d) {
 	float rr = qnormsq(d.r);

@@ -262,9 +262,15 @@ writeXMesh(FILE *f, xModel *mdl, xMesh *mesh, int n)
 			fprintf(f, "\tw %f %f %f %f\n", w[i*4+0],  w[i*4+1],  w[i*4+2],  w[i*4+3]);
 			fprintf(f, "\ti %d %d %d %d\n", x[i*4+0],  x[i*4+1],  x[i*4+2],  x[i*4+3]);
 		}
+		// the forward bind pose, quat + pos + scale; the load rebuilds
+		// the inverse bind in whatever rep it wants
 		for(int i = 0; i < s->numBones; i++) {
-			fprintf(f, "\t");
-			writeXMatrix(f, "invmat", s->invbind[i].m, 0);
+			Mat4 fwd = s->rep == XFORM_DQ ? dtomat4(drev(s->invbind[i].dq)) : m4inverse(s->invbind[i].m);
+			Quat q = qnormalized(qfrommat4(fwd));
+			Vec3 pos = v4tov3(fwd.w);
+			Vec3 scl = vec3(v3norm(v4tov3(fwd.x)), v3norm(v4tov3(fwd.y)), v3norm(v4tov3(fwd.z)));
+			fprintf(f, "\tbindPose %g %g %g %g  %g %g %g  %g %g %g\n",
+				q.x, q.y, q.z, q.w, pos.x, pos.y, pos.z, scl.x, scl.y, scl.z);
 		}
 	}
 
@@ -279,7 +285,8 @@ writeXSkeleton(FILE *f, xSkeleton *skel, int level)
 		xBone *b = &skel->bones[i];
 		const char *name = b->node ? b->node->name : "(null)";
 		OUT(f, "bone \"%s\" %d %d ", name, b->flag, b->tag);
-		writeXMatrix(f, "", skel->composed[i].m, 0);
+		Mat4 cm = xXformMat(skel->rep, skel->composed[i]);
+		writeXMatrix(f, "", cm, 0);
 	}
 }
 
@@ -498,6 +505,8 @@ xModelResolve(const char *cls, const char *name)
 }
 
 const char *texpath = ".";
+// which rep an agnostic bindPose loads into (the file is rep-agnostic)
+int xPreferredRep = XFORM_MATRIX;
 
 extern "C" int tokenize(char *s, char **args, int maxargs);
 
@@ -540,6 +549,7 @@ lookup(struct Cmd *tab, char *str)
 	X("w", CMD_W) \
 	X("i", CMD_I) \
 	X("invmat", CMD_INVMAT) \
+	X("bindPose", CMD_BINDPOSE) \
 	X("endmesh", CMD_ENDMESH) \
 	X("node", CMD_NODE) \
 	X("tag", CMD_TAG) \
@@ -865,8 +875,29 @@ loadXModelText(char *text, uint32 size)
 			assert(mesh->skin);
 			s = mesh->skin;
 			assert(nb < s->numBones);
+			s->rep = XFORM_MATRIX;		// a stored matrix forces matrix rep
 			s->invbind[nb++].m = readXMatrix(tokens+1);
 			break;
+		case CMD_BINDPOSE: {
+			// forward bind pose: quat, pos, optional scale.  The skin
+			// holds the inverse bind, built into the load's rep -- DQ
+			// is the trivial dual-quat inverse, matrix inverts the
+			// composed transform (agnostic file, rep chosen at load).
+			assert(mesh);
+			assert(mesh->skin);
+			s = mesh->skin;
+			assert(nb < s->numBones);
+			Quat q = quat(atof(tokens[1]), atof(tokens[2]), atof(tokens[3]), atof(tokens[4]));
+			Vec3 pos = vec3(atof(tokens[5]), atof(tokens[6]), atof(tokens[7]));
+			Vec3 scl = ntok >= 11 ? vec3(atof(tokens[8]), atof(tokens[9]), atof(tokens[10])) : vec3(1.0f, 1.0f, 1.0f);
+			s->rep = xPreferredRep;
+			if(s->rep == XFORM_DQ)
+				s->invbind[nb].dq = drev(dfromrt(q, pos));
+			else
+				s->invbind[nb].m = m4inverse(m4translatev(pos) * qtomat4(q) * m4scalev(scl));
+			nb++;
+			break;
+		}
 
 		case CMD_SKELETON:
 			assert(node);
@@ -893,6 +924,14 @@ loadXModelText(char *text, uint32 size)
 			exit(1);
 		}
 	}
+
+	// the inverse bind decides: the skeleton follows the skin's rep
+	if(mdl->skel)
+		for(int i = 0; i < mdl->numMeshes; i++)
+			if(mdl->meshes[i]->skin) {
+				mdl->skel->rep = mdl->meshes[i]->skin->rep;
+				break;
+			}
 
 	return mdl;
 }
@@ -1064,28 +1103,6 @@ xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius)
 // are each rigid -- a unit dual quaternion -- and the model's placement and
 // scale ride in the world matrix at draw time instead of hiding in the skin.
 // Idempotent-unsafe: run once, on a freshly converted model.
-// switch a loaded (matrix) skinned model to the dual-quaternion rep, for
-// testing the DQ path before the converter emits it: rigid inverse binds
-// become unit DQs (dfrommat, offline-style), and the skeleton recomposes.
-void
-xModelUseDQ(xModel *mdl)
-{
-	for(int i = 0; i < mdl->numMeshes; i++) {
-		xSkin *s = mdl->meshes[i]->skin;
-		if(s == nil)
-			continue;
-		s->rep = XFORM_DQ;
-		for(int b = 0; b < s->numBones; b++) {
-			Mat4 m = s->invbind[b].m;
-			s->invbind[b].dq = dfrommat(m);
-		}
-	}
-	if(mdl->skel) {
-		mdl->skel->rep = XFORM_DQ;
-		xSkeletonResetMatrices(mdl->skel);
-		xSkeletonUpdateMatrices(mdl->skel);
-	}
-}
 
 void
 xReRootSkin(xModel *mdl)

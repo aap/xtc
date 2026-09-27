@@ -26,6 +26,7 @@ void *emalloc(size_t sz);
 int readfile(const char *path, uint8 **data, uint32 *size);
 
 extern const char *texpath;
+extern int xPreferredRep;	// XFORM_MATRIX | XFORM_DQ: how bindPose loads
 
 // this sort of mirrors assimp structs
 STRUCT(xTexture) {
@@ -165,8 +166,6 @@ void buildXModel(xModel *mdl);
 // the skin's vertices and inverse binds so the skeleton stays rigid and the
 // model's placement/scale rides in the world matrix (xSkeletonBaseMatrix)
 void xReRootSkin(xModel *mdl);
-// switch a loaded skinned model to the dual-quaternion rep (testing)
-void xModelUseDQ(xModel *mdl);
 // bind pose bounding sphere in model space
 void xModelBoundingSphere(xModel *mdl, Vec3 *center, float *radius);
 

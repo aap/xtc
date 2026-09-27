@@ -95,15 +95,13 @@ load(void)
 	float radius;
 
 	texpath = "host:./local/models/textures_ps2";
-	sprintf(path, "host:./build/chk/models/%s%s.chk", modelName, quant ? "_Q" : "");
+	sprintf(path, "host:./build/chk/models/%s%s.chk", modelName, dqmode ? "_dq" : quant ? "_Q" : "");
 	model = loadXModel(path);
 	if(model == nil) {
 		printf("skinview: no model %s\n", path);
 		return;
 	}
 	buildXModel(model);
-	if(dqmode)
-		xModelUseDQ(model);
 	xModelBoundingSphere(model, &center, &radius);
 	camDist = 2.1f*radius;
 	printf("skinview: %s: %d meshes, %d bones, radius %g\n", modelName,
