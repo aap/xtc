@@ -141,10 +141,10 @@ $(OBJDIR)/%.o: %.cpp
 
 $(OBJDIR)/%.d: %.c
 	@mkdir -p $(@D)
-	$(CC) -MM -MT $(@:.d=.o) $(CFLAGS) $(INC) $< > $@
+	@$(CC) -MM $(CFLAGS) $(INC) $< | sed 's,^[^:]*:,$(@:.d=.o) $@:,' > $@
 $(OBJDIR)/%.d: %.cpp
 	@mkdir -p $(@D)
-	$(CXX) -MM -MT $(@:.d=.o) $(CFLAGS) $(INC) $< > $@
+	@$(CXX) -MM $(CFLAGS) $(INC) $< | sed 's,^[^:]*:,$(@:.d=.o) $@:,' > $@
 
 # ---- freesce ---------------------------------------------------------------
 # Two roots, because they are two different axes. FREESCE is the SDK vintage --
@@ -193,6 +193,8 @@ FSINC := $(addprefix -I,$(SRCDIRS)) -Icommon -I$(MDMADIR) $(FREESCE_INC)
 FSOBJDIR := build/freesce
 FSOBJ := $(addprefix $(FSOBJDIR)/,$(CSRC:.c=.o) $(CXXSRC:.cpp=.o) $(VUSRC:.dsm=.o)) \
 	$(addprefix $(FSOBJDIR)/mdma/,$(notdir $(MDMASRC:.c=.o)))
+FSDEP := $(addprefix $(FSOBJDIR)/,$(CSRC:.c=.d) $(CXXSRC:.cpp=.d) \
+	$(filter %.d,$(DEMOSRC:.c=.d) $(DEMOSRC:.cpp=.d)))
 
 FS_XTCDEMO_OBJ := $(call demoobj,$(FSOBJDIR),xtcdemo)
 FS_SPYRO_OBJ := $(call demoobj,$(FSOBJDIR),spyro)
@@ -250,9 +252,18 @@ $(FSOBJDIR)/%.o: %.cpp
 	@mkdir -p $(@D)
 	$(FSCXX) $(FSFLAGS) $(FSINC) -c $< -o $@
 
+# freesce header dependencies (ee-gcc 2.9 has no -MT, so -MM + sed)
+$(FSOBJDIR)/%.d: %.c
+	@mkdir -p $(@D)
+	@$(FSCXX) -MM $(FSFLAGS) -x c++ $(FSINC) $< | sed 's,^[^:]*:,$(@:.d=.o) $@:,' > $@
+$(FSOBJDIR)/%.d: %.cpp
+	@mkdir -p $(@D)
+	@$(FSCXX) -MM $(FSFLAGS) $(FSINC) $< | sed 's,^[^:]*:,$(@:.d=.o) $@:,' > $@
+
 .PHONY: all run freesce chunks variants clean
 
 clean:
 	rm -rf build $(DEMOS:%=%.elf) $(DEMOS:%=%_freesce.elf)
 
 -include $(DEP)
+-include $(FSDEP)
